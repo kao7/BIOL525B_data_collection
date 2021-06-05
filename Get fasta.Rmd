@@ -17,12 +17,14 @@ BiocManager::install("biomaRt")
 install.packages("tidyverse")
 install.packages(c("httr","jsonlite"))
 install.packages("seqinr")
+install.packages("xml2")
 
 library(tidyverse)
 library(biomaRt)
 library(httr)
 library(jsonlite)
 library(seqinr)
+library(xml2)
 
 #Get genes
 IDs <- scan("diverse_proteomes.txt", character())
@@ -121,37 +123,81 @@ pdl <- bind_rows(itp__, .id="Order") %>%
   unnest(cols = colnames(.)) %>%
   mutate(uniprot_accession = toupper(uniprot_accession))
 
-pdl_map <- pdl %>%
-  group_by(Order, uniprot_accession) %>%
-  summarise() %>%
-  drop_na(uniprot_accession)
-
-pdl_ <- pdl %>%
-  dplyr::filter(accession == "IPR002083") %>%
-  group_by(uniprot_accession) %>% 
-  mutate(id = 1:n()) %>%
-  mutate(n = n())%>%
-  ungroup()
+# pdl_map <- pdl %>%
+#   group_by(Order, uniprot_accession) %>%
+#   summarise() %>%
+#   drop_na(uniprot_accession)
 
 pdl_type <- pdl %>%
-  filter()
+  filter(type == "homologous_superfamily") %>%
+  mutate(domain_code = recode(accession, "IPR008974" = "T", "IPR011333" = "B", "IPR013083" = "Z", "IPR038765" = "P", .default = "")) %>%
+  mutate(mid = (end+start)/2) %>%
+  group_by(uniprot_accession) %>%
+  arrange(mid, .by_group = TRUE) %>%
+  mutate(protein_type = paste0(domain_code, collapse = "")) %>%
+  ungroup() %>%
+  dplyr::select(uniprot_accession, protein_type) %>%
+  distinct(uniprot_accession, .keep_all = TRUE)
+
+pdl_type2 <- pdl %>%
+  filter(type == "domain") %>% 
+  mutate(domain_code = recode(name, 
+                              "B-box-type zinc finger" = "Z",
+                              "Zinc finger, RanBP2-type" = "Z",
+                              "Zinc finger, ZZ-type" = "Z",
+                              "Zinc finger, TAZ-type" = "Z",
+                              "Zinc finger, TRAF-type" ="Z",
+                              "Zinc finger, RING-type" = "Z",
+                              "Zinc finger, SIAH-type" = "Z",
+                              "U box domain" = "Z",
+                              "BTB/POZ domain" = "B", 
+                              "MATH/TRAF domain" = "T",
+                              "Seven-in-absentia protein, TRAF-like domain" = "T",
+                              "Peptidase C19, ubiquitin carboxyl-terminal hydrolase" = "P", 
+                              "Ubiquitin carboxyl-terminal hydrolase 7, ICP0-binding domain" = "P",
+                              "Ubiquitin carboxyl-terminal hydrolase, C-terminal" = "P",
+                              "Ubiquitin specific protease domain" = "P",
+                              .default = "")) %>%
+  mutate(mid = (end+start)/2) %>%
+  group_by(uniprot_accession) %>%
+  arrange(mid, .by_group = TRUE) %>%
+  mutate(protein_type2 = paste0(domain_code, collapse = "")) %>%
+  mutate(protein_type2 = str_replace_all(protein_type2, "(P)\\1+", "\\1")) %>%
+  ungroup() %>%
+  dplyr::select(uniprot_accession, protein_type2) %>%
+  distinct(uniprot_accession, .keep_all = TRUE)
+
+# as.data.frame(table(as.factor(pdl_type2$name)))
+pdl_withtype <- pdl %>%
+  left_join(pdl_type) %>%
+  left_join(pdl_type2)  %>%
+  mutate(TEST = ifelse(protein_type == protein_type2,"","FIX ME")) %>%
+  rowwise() %>% 
+  mutate(protein_type_ = c_across(starts_with("protein_type"))[which.max(nchar(c_across(starts_with("protein_type"))))]) %>%
+  mutate(ALL_have_T = str_match(protein_type_, "T")) %>% #check if all have T
+  mutate(domain_have_T = str_match(protein_type2, "T")) %>%
+  mutate(HSF_have_T = str_match(protein_type, "T"))
 
 
-
-url_list_fasta<- tibble(ID= data_all$value,
-                   URL = rep("https://www.uniprot.org/uniprot/REPLACE&format=fasta", length(data_all$value))) %>%
+url_list_fasta<- tibble(ID= data,
+                   URL = rep("https://www.uniprot.org/uniprot/REPLACE&format=fasta", length(data))) %>%
   mutate(URL = str_replace(URL, "REPLACE", ID))
 
 res_f <- map(url_list_fasta$URL, GET)
-res_f <- discard(res_f, ~.x$status_code == 204)
+table(unlist(map(res_f, c(status_code))))
+# res_f <- discard(res_f, ~.x$status_code == 204)
+saveRDS(res_f, "res_f.RDS")
+res_f<- readRDS("res_f.RDS")
+
+
 fasta <- map(res_f, "content") %>%
   map(~rawToChar(.)) %>%
   purrr::flatten() %>%
   as.character()
 
-fileconn <- file("May28.fasta")
-writeLines(fasta, fileconn)
-close(fileconn)
+# fileconn <- file("May28.fasta")
+# writeLines(fasta, fileconn)
+# close(fileconn)
 
 
 fasta2 <- map(res_f, "content") %>%
@@ -164,6 +210,79 @@ fasta2 <- map(res_f, "content") %>%
   separate(species, into = c("species", "leftover"), sep = "OX=", extra = "merge") %>%
   mutate(seq = str_replace_all(seq, "\n", "")) %>%
   rename(uniprot_accession = two)
+
+
+
+
+#STILL HAVE TO GET RID OF DUPLICATES & SHORT SEQUENCES
+
+
+url_list_gene<- tibble(ID= data,
+                   URL = rep("https://www.uniprot.org/uniprot/REPLACE&format=txt", length(data))) %>%
+  mutate(URL = str_replace(URL, "REPLACE", ID))
+
+res_gene <- map(url_list_gene$URL, GET)
+table(unlist(map(res_gene, c(status_code))))
+genes <- map(res_gene, "content") %>%
+  map(~rawToChar(.))
+  # purrr::flatten() %>%
+  # as.character()
+
+
+gene_annot <- map(genes, ~as_tibble(read_lines(.x))) %>%
+  map(~filter(.x, str_detect(.x$value, "DR   MGI|DR   EnsemblMetazoa|DR   WormBase|DR   EnsemblFungi|DR   EnsemblPlants")) %>% transpose())
+
+
+
+
+
+
+
+
+# pdl_TRAF <- pdl_withtype %>%
+#   group_by(uniprot_accession) %>% 
+#   # dplyr::filter(accession == "IPR018121") %>%
+#   # nrow() #count number of SINA = 82
+#   dplyr::filter(any(accession == "IPR018121")) %>%
+#   dplyr::filter(accession == "IPR008974") %>%
+#   nrow() # count number of HSF TRAF = 82 --> each SINA should be covered by HSF --> can exclude the domain
+
+
+
+pdl_TRAF <- pdl_withtype %>%
+  group_by(uniprot_accession) %>% 
+  dplyr::filter(
+    (accession == "IPR002083" & uniprot_accession != "A0A7I4D1F8" & uniprot_accession !="A0A2K1L2Z6") |  #TRAF domain for all but misannotated ones
+      ((uniprot_accession == "A0A7I4D1F8"| uniprot_accession == "A0A2K1L2Z6") & accession == "IPR008974") | #add HSF for misannotated ones
+      (any(accession == "IPR018121") & accession == "IPR008974") | #add HSF for SINA ones
+      (is.na(domain_have_T) & accession == "IPR008974")) %>% #add HSF for ones missing TRAF domain annotation
+  group_by(uniprot_accession) %>%
+  mutate(id = 1:n()) %>%
+  mutate(n = n())%>%
+  ungroup() %>%
+  mutate(domain_length = end-start) %>%
+  mutate(T_n = str_count(protein_type_, "T")) %>%
+  filter(n != T_n) #966
+
+##This code is for using mostly HSF instead
+# pdl_TRAF <- pdl_withtype %>%
+#   dplyr::filter(accession == "IPR008974" | (is.na(HSF_have_T) & accession == "IPR002083")) %>%
+#   group_by(uniprot_accession) %>% 
+#   mutate(id = 1:n()) %>%
+#   mutate(n = n())%>%
+#   ungroup() %>%
+#   mutate(domain_length = end-start) %>%
+#   mutate(T_n = str_count(protein_type_, "T")) %>%
+#   filter(n != T_n)
+
+
+
+
+
+
+
+
+
 
 pdl_fasta <- left_join(pdl_, fasta2, by = "uniprot_accession") %>%
   mutate(start = start-10)%>%
