@@ -1,0 +1,334 @@
+---
+title: "TRAF_for_class"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install()
+BiocManager::install("biomaRt")
+install.packages("tidyverse")
+install.packages(c("httr","jsonlite"))
+install.packages("seqinr")
+
+library(tidyverse)
+library(biomaRt)
+library(httr)
+library(jsonlite)
+library(seqinr)
+
+#Get genes
+setwd("C:/Users/User/Desktop/Phylogeny course/HWK/Get fasta seq")
+IDs <- scan("diverse_proteomes.txt", character())
+url_list <- tibble(ID = IDs,
+                   URL = rep("https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR008974/proteome/uniprot/REPLACE/?page_size=300",length(IDs))) %>% #"https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR008974/taxonomy/uniprot/REPLACE/?page_size=300"
+    mutate(URL = str_replace(URL, "REPLACE", ID))
+
+
+res_ <- map(url_list$URL, GET)
+res_ <- discard(res_, ~.x$status_code == 204) #remove lists that don't have any data
+data <- map(res_, "content") %>%
+  map(~fromJSON(rawToChar(.))) %>%
+  map(c("results","metadata","accession")) %>%
+  purrr::flatten() %>%
+  as.character()%>%
+  as_tibble() %>%
+  distinct() # generates list of uniprot accessions containing interpro accessions - NOTE THAT SOME ISOFORMS MAY NOT BE INCLUDED
+
+IDs2 <- tibble(read_delim("tax_IDs_remainder.txt", col_names = FALSE, delim= "\n",col_types = "c"))
+url_list_ <- tibble(ID = unlist(IDs2),
+                   URL = rep("https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR008974/taxonomy/uniprot/REPLACE/?page_size=300",length(IDs2))) %>% 
+    mutate(URL = str_replace(URL, "REPLACE", ID))
+
+res__ <- map(url_list_$URL, GET)
+res__ <- discard(res__, ~.x$status_code == 204)
+data2 <- map(res__, "content") %>%
+  map(~fromJSON(rawToChar(.))) %>%
+  map(c("results","metadata","accession")) %>%
+  purrr::flatten() %>%
+  as.character()%>%
+  as_tibble() %>%
+  distinct()
+
+data_all <- rbind(data,data2)
+
+
+url_list3 <- tibble(Accession = data$value, URL = rep("https://www.ebi.ac.uk/interpro/api/entry/InterPro/protein/UniProt/REPLACE?page_size=350",nrow(data))) %>%
+  mutate(URL = str_replace(URL, "REPLACE", Accession)) 
+
+res_3 <- map(url_list3$URL, GET) #get interpro data for each accession
+res_3 <- discard(res_3, ~.x$status_code == 204)
+
+meta <- map(res_3, "content") %>%
+  map(~fromJSON(rawToChar(.))) %>%
+  map("results")
+meta <- meta[-269]
+  
+
+itp_meta <- meta %>%
+  map(c("metadata")) %>%
+  map(~dplyr::select(.x, "accession","name","source_database","type")) %>%
+  map(transpose)
+
+itp_prot <- meta %>%
+  map(c("proteins")) %>%
+  map(~map(.x, ~dplyr::rename(.x, "uniprot_accession" = "accession"))) %>%
+  map(~map(.x, ~dplyr::rename(.x, "uniprot_source_database" = "source_database"))) %>%
+  map(~map(.x, purrr::flatten)) %>%
+  map(~map(.x, purrr::flatten))
+
+itp_ <-map2(itp_meta, itp_prot, ~map2(.x,.y, c))
+
+itp_names <- itp_ %>%
+  map(~map(., names)) %>%
+  map(unlist) %>%
+  purrr::reduce(union)
+
+itp_ <- itp_ %>%
+  map(transpose, .names = itp_names) %>%
+  # map(~map_if(.x, is.data.frame, list)) %>%
+  map(~as_tibble(.x, .name_repair = "unique")) %>%
+  map(~unnest(.x, c("fragments", "model", "score"))) %>%
+  map(~unnest(.x, fragments)) %>%
+  map(transpose)
+
+itp_names2 <- itp_ %>%
+  map(~map(., names)) %>%
+  map(unlist) %>%
+  purrr::reduce(union) # to make sure all columns are kept
+
+itp__ <- itp_ %>%
+  map(transpose, .names = itp_names2) %>%
+  map(~as_tibble(.x, .name_repair = "unique"))
+
+pdl <- bind_rows(itp__, .id="Order") %>%
+  unnest(cols = colnames(.)) %>%
+  mutate(uniprot_accession = toupper(uniprot_accession))
+
+pdl_map <- pdl %>%
+  group_by(Order, uniprot_accession) %>%
+  summarise() %>%
+  drop_na(uniprot_accession)
+
+pdl_ <- pdl %>%
+  dplyr::filter(accession == "IPR002083") %>%
+  group_by(uniprot_accession) %>% 
+  mutate(id = 1:n()) %>%
+  mutate(n = n())%>%
+  ungroup()
+
+
+
+
+url_list_fasta<- tibble(ID= data_all$value,
+                   URL = rep("https://www.uniprot.org/uniprot/REPLACE&format=fasta", length(data_all$value))) %>%
+  mutate(URL = str_replace(URL, "REPLACE", ID))
+
+res_f <- map(url_list_fasta$URL, GET)
+res_f <- discard(res_f, ~.x$status_code == 204)
+fasta <- map(res_f, "content") %>%
+  map(~rawToChar(.)) %>%
+  purrr::flatten() %>%
+  as.character()
+
+fileconn <- file("May28.fasta")
+writeLines(fasta, fileconn)
+close(fileconn)
+
+
+fasta2 <- map(res_f, "content") %>%
+  map(~rawToChar(.)) %>%
+  transpose() %>%
+  as_tibble(, .name_repair = "unique") %>%
+  separate(`...1`, into = c("one", "two", "three"), sep="\\|") %>%
+  separate(three, into = c("four","seq"), sep= "\n", extra = "merge") %>%
+  separate(four, into = c("four", "species"), sep = "=", extra = "merge") %>%
+  separate(species, into = c("species", "leftover"), sep = "OX=", extra = "merge") %>%
+  mutate(seq = str_replace_all(seq, "\n", "")) %>%
+  rename(uniprot_accession = two)
+
+pdl_fasta <- left_join(pdl_, fasta2, by = "uniprot_accession") %>%
+  mutate(start = start-10)%>%
+  mutate(end= end+10) %>%
+  mutate(start = if_else(start <0, 0, start)) %>%
+  mutate(end = if_else(end > as.numeric(protein_length), as.numeric(protein_length), end)) %>%
+  # mutate(test = protein_length - end)
+  mutate(subseq = str_sub(seq, start = start, end = end)) %>%
+  unite(fasta_name, id, n, uniprot_accession, species, sep= "_", remove = FALSE) %>%
+  mutate(fasta_name = str_replace(fasta_name, "_", "of")) %>%
+  separate(species, into =c("genus", "species", "subspeciesname"), sep = " ", remove = FALSE, extra = "merge")
+
+
+
+
+ensemblp <- useEnsemblGenomes(biomart = "plants_mart")
+ensemblp_datasets <- as_tibble(listDatasets(ensemblp)) %>%
+  separate(description, into = c("genus", "species", "speciesdetails"), sep = " ", extra = "merge")
+
+species_to_search <- distinct(pdl_fasta, genus, species, subspeciesname) %>% dplyr::select(genus,species,subspeciesname) %>%
+  left_join(ensemblp_datasets) %>%
+  drop_na(dataset) %>%
+  filter(!str_detect(dataset, "oindica_eg_gene")) %>%
+  pull(dataset)
+
+pdl_fasta_ <- left_join(pdl_fasta, species_to_search) %>%
+  drop_na(dataset) %>%
+  group_by(dataset)
+
+pdl_fasta_split <- pdl_fasta_ %>%
+  group_split(.keep=TRUE)
+
+search_biomart_filters <- function(dataset){
+  as_tibble(
+    rbind(
+    searchAttributes(useEnsemblGenomes(biomart = "plants_mart", dataset = dataset), pattern ="uniprot"),
+    searchAttributes(useEnsemblGenomes(biomart = "plants_mart", dataset = dataset), pattern ="swiss")
+  ))
+}
+
+searchAttributes(useEnsemblGenomes(biomart = "plants_mart", dataset = "athaliana_eg_gene"), pattern ="uniprot")
+biomart_filters <- map(species_to_search$dataset, search_biomart_filters)
+
+
+
+
+
+Filters <- "uniprotsptrembl"
+Attributes <- c("ensembl_gene_id","ensembl_transcript_id", "uniprotsptrembl")
+
+Search_biomart <- function(search_terms, biomart = "plants_mart", attributes = Attributes, filters = Filters){
+  mart_ID <- useEnsemblGenomes(biomart = biomart, dataset = search_terms$dataset[[1]])
+  as_tibble(
+    getBM(attributes = attributes,
+      filters = filters,
+      values = search_terms$uniprot_accession, 
+      mart = mart_ID)
+  )
+}
+Ensembl_annot <- map(pdl_fasta_split, Search_biomart)
+pdl_fasta_split <- pdl_fasta_split[-4]
+Ensembl_annot2 <- map(pdl_fasta_split, Search_biomart, filters = "uniprotswissprot", attributes = c("ensembl_gene_id","ensembl_transcript_id", "uniprotswissprot"))
+Ensembl_annot_full <- c(Ensembl_annot, Ensembl_annot2) %>%
+  discard(function(x) nrow(x) == 0) %>%
+  reduce(full_join, by = "ensembl_gene_id")
+
+
+#TIR_list <- map(dataset_id, Search_biomart) #if looking through multiple species
+#str(TIR_list)
+#TIR_list <- TIR_list$athaliana_eg_gene 
+
+TIR_list <- Search_biomart(dataset_id)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+write.fasta(as.list(pdl_fasta$subseq), names= pdl_fasta$fasta_name, file.out = "May28subseq.fasta", as.string = TRUE)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+meta_ <- meta %>%
+  map(c("metadata")) %>%
+  map(~dplyr::select(.x, "accession","name")) %>%
+  map(transpose)
+
+entry <- meta %>%
+  map(c("entries")) %>%
+  map(~map(.x, purrr::flatten)) %>%
+  map(~map(.x, purrr::flatten))
+
+meta_entry <-map2(meta_, entry, ~map2(.x,.y, c))
+
+me_names <- meta_entry %>%
+  map(~map(., names)) %>%
+  map(unlist) %>%
+  purrr::reduce(union)
+
+
+meta_entry <- meta_entry %>%
+  map(transpose, .names = me_names) %>%
+  # map(~map_if(.x, is.data.frame, list)) %>%
+  map(~as_tibble(.x, .name_repair = "unique")) %>%
+  map(~unnest(.x, c("fragments", "model", "score"))) %>%
+  map(~unnest(.x, fragments)) %>%
+  map(transpose)
+
+
+
+%>% 
+  map(transpose) %>%
+  map(~as_tibble(.x, .name_repair = "unique")) %>%
+  map(~dplyr::select(.x, "accession","entry_protein_locations")) %>%
+  map(~unnest(.x, fragments)) %>%
+  map(transpose)
+
+
+  map(~dplyr::select(.x, "accession","name","source_database","type"))
+
+itp_meta <- itp %>%
+  map(c("results","metadata")) %>%
+  map(~dplyr::select(.x, "accession","name","source_database","type")) %>%
+  map(transpose)
+
+itp_prot <- itp %>%
+  map(c("proteins")) %>%
+  map(~map(.x, ~dplyr::rename(.x, "uniprot_accession" = "accession"))) %>%
+  map(~map(.x, ~dplyr::rename(.x, "uniprot_source_database" = "source_database"))) %>%
+  map(~map(.x, purrr::flatten)) %>%
+  map(~map(.x, purrr::flatten))
+
+
+```
