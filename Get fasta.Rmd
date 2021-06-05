@@ -13,7 +13,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
-BiocManager::install()
 BiocManager::install("biomaRt")
 install.packages("tidyverse")
 install.packages(c("httr","jsonlite"))
@@ -26,51 +25,60 @@ library(jsonlite)
 library(seqinr)
 
 #Get genes
-setwd("C:/Users/User/Desktop/Phylogeny course/HWK/Get fasta seq")
 IDs <- scan("diverse_proteomes.txt", character())
 url_list <- tibble(ID = IDs,
-                   URL = rep("https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR008974/proteome/uniprot/REPLACE/?page_size=300",length(IDs))) %>% #"https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR008974/taxonomy/uniprot/REPLACE/?page_size=300"
-    mutate(URL = str_replace(URL, "REPLACE", ID))
+                   URL = rep("https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR008974/proteome/uniprot/REPLACE/?page_size=300",length(IDs)),
+                   URL2 = rep("https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR002083/proteome/uniprot/REPLACE/?page_size=300",length(IDs))
+                   ) %>%
+  mutate(URL = str_replace(URL, "REPLACE", ID)) %>%
+  mutate(URL2 = str_replace(URL2, "REPLACE", ID))
 
 
-res_ <- map(url_list$URL, GET)
-res_ <- discard(res_, ~.x$status_code == 204) #remove lists that don't have any data
+res_ <- map(c(url_list$URL,url_list$URL2), GET)
+
+saveRDS(res_, "res_.RDS")
+res_<- readRDS("res_.RDS")
+
+table(unlist(map(res_, c(status_code))))
+# res_ <- discard(res_, ~.x$status_code == 204) #remove lists that don't have any data if any
 data <- map(res_, "content") %>%
   map(~fromJSON(rawToChar(.))) %>%
   map(c("results","metadata","accession")) %>%
-  purrr::flatten() %>%
-  as.character()%>%
-  as_tibble() %>%
-  distinct() # generates list of uniprot accessions containing interpro accessions - NOTE THAT SOME ISOFORMS MAY NOT BE INCLUDED
+  unlist() %>%
+  unique() # generates list of uniprot accessions containing interpro accessions - NOTE THAT SOME ISOFORMS MAY NOT BE INCLUDED
 
-IDs2 <- tibble(read_delim("tax_IDs_remainder.txt", col_names = FALSE, delim= "\n",col_types = "c"))
-url_list_ <- tibble(ID = unlist(IDs2),
-                   URL = rep("https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR008974/taxonomy/uniprot/REPLACE/?page_size=300",length(IDs2))) %>% 
-    mutate(URL = str_replace(URL, "REPLACE", ID))
-
-res__ <- map(url_list_$URL, GET)
-res__ <- discard(res__, ~.x$status_code == 204)
-data2 <- map(res__, "content") %>%
-  map(~fromJSON(rawToChar(.))) %>%
-  map(c("results","metadata","accession")) %>%
-  purrr::flatten() %>%
-  as.character()%>%
-  as_tibble() %>%
-  distinct()
-
-data_all <- rbind(data,data2)
+# IDs2 <- tibble(read_delim("tax_IDs_remainder.txt", col_names = FALSE, delim= "\n",col_types = "c"))
+# url_list_ <- tibble(ID = unlist(IDs2),
+#                    URL = rep("https://www.ebi.ac.uk/interpro/api/protein/UniProt/entry/InterPro/IPR008974/taxonomy/uniprot/REPLACE/?page_size=300",length(IDs2))) %>% 
+#     mutate(URL = str_replace(URL, "REPLACE", ID))
+# 
+# res__ <- map(url_list_$URL, GET)
+# res__ <- discard(res__, ~.x$status_code == 204)
+# data2 <- map(res__, "content") %>%
+#   map(~fromJSON(rawToChar(.))) %>%
+#   map(c("results","metadata","accession")) %>%
+#   purrr::flatten() %>%
+#   as.character()%>%
+#   as_tibble() %>%
+#   distinct()
+# 
+# data_all <- rbind(data,data2)
 
 
-url_list3 <- tibble(Accession = data$value, URL = rep("https://www.ebi.ac.uk/interpro/api/entry/InterPro/protein/UniProt/REPLACE?page_size=350",nrow(data))) %>%
+url_list3 <- tibble(Accession = data, URL = rep("https://www.ebi.ac.uk/interpro/api/entry/InterPro/protein/UniProt/REPLACE?page_size=350",length(data))) %>%
   mutate(URL = str_replace(URL, "REPLACE", Accession)) 
 
 res_3 <- map(url_list3$URL, GET) #get interpro data for each accession
-res_3 <- discard(res_3, ~.x$status_code == 204)
+table(unlist(map(res_3, c(status_code))))
+# res_3 <- discard(res_3, ~.x$status_code == 204)
+
+saveRDS(res_3, "res_3.RDS")
+res_3<- readRDS("res_3.RDS")
+
 
 meta <- map(res_3, "content") %>%
   map(~fromJSON(rawToChar(.))) %>%
   map("results")
-meta <- meta[-269]
   
 
 itp_meta <- meta %>%
@@ -125,6 +133,8 @@ pdl_ <- pdl %>%
   mutate(n = n())%>%
   ungroup()
 
+pdl_type <- pdl %>%
+  filter()
 
 
 
