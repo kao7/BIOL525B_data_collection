@@ -223,6 +223,10 @@ url_list_gene<- tibble(ID= data,
 
 res_gene <- map(url_list_gene$URL, GET)
 table(unlist(map(res_gene, c(status_code))))
+
+saveRDS(res_gene, "res_gene.RDS")
+res_gene<- readRDS("res_gene.RDS")
+
 genes <- map(res_gene, "content") %>%
   map(~rawToChar(.))
   # purrr::flatten() %>%
@@ -284,18 +288,27 @@ pdl_TRAF <- pdl_withtype %>%
 
 
 
-pdl_fasta <- left_join(pdl_, fasta2, by = "uniprot_accession") %>%
+pdl_fasta <- left_join(pdl_TRAF, fasta2, by = "uniprot_accession") %>%
   mutate(start = start-10)%>%
   mutate(end= end+10) %>%
   mutate(start = if_else(start <0, 0, start)) %>%
   mutate(end = if_else(end > as.numeric(protein_length), as.numeric(protein_length), end)) %>%
   # mutate(test = protein_length - end)
   mutate(subseq = str_sub(seq, start = start, end = end)) %>%
-  unite(fasta_name, id, n, uniprot_accession, species, sep= "_", remove = FALSE) %>%
-  mutate(fasta_name = str_replace(fasta_name, "_", "of")) %>%
-  separate(species, into =c("genus", "species", "subspeciesname"), sep = " ", remove = FALSE, extra = "merge")
+  mutate(species_short = word(species, 1, 2)) %>%
+  unite(trace, id, n, sep= "/", remove = FALSE) %>%
+  unite(trace_ua, uniprot_accession, trace, sep= "_", remove = FALSE) %>%
+  unite(fasta_name, trace_ua, protein_type_, species_short, sep= " ", remove = FALSE)
+  # mutate(fasta_name = str_replace(fasta_name, "_", "of")) %>%
+  # separate(species, into =c("genus", "species", "subspeciesname"), sep = " ", remove = FALSE, extra = "merge")
 
+write.fasta(as.list(pdl_fasta$subseq), names= pdl_fasta$fasta_name, file.out = "June5subseq.fasta", as.string = TRUE)
 
+  
+```
+
+##look up duplicates
+```{r}
 
 
 ensemblp <- useEnsemblGenomes(biomart = "plants_mart")
@@ -355,109 +368,4 @@ Ensembl_annot_full <- c(Ensembl_annot, Ensembl_annot2) %>%
 #TIR_list <- TIR_list$athaliana_eg_gene 
 
 TIR_list <- Search_biomart(dataset_id)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-write.fasta(as.list(pdl_fasta$subseq), names= pdl_fasta$fasta_name, file.out = "May28subseq.fasta", as.string = TRUE)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-meta_ <- meta %>%
-  map(c("metadata")) %>%
-  map(~dplyr::select(.x, "accession","name")) %>%
-  map(transpose)
-
-entry <- meta %>%
-  map(c("entries")) %>%
-  map(~map(.x, purrr::flatten)) %>%
-  map(~map(.x, purrr::flatten))
-
-meta_entry <-map2(meta_, entry, ~map2(.x,.y, c))
-
-me_names <- meta_entry %>%
-  map(~map(., names)) %>%
-  map(unlist) %>%
-  purrr::reduce(union)
-
-
-meta_entry <- meta_entry %>%
-  map(transpose, .names = me_names) %>%
-  # map(~map_if(.x, is.data.frame, list)) %>%
-  map(~as_tibble(.x, .name_repair = "unique")) %>%
-  map(~unnest(.x, c("fragments", "model", "score"))) %>%
-  map(~unnest(.x, fragments)) %>%
-  map(transpose)
-
-
-
-%>% 
-  map(transpose) %>%
-  map(~as_tibble(.x, .name_repair = "unique")) %>%
-  map(~dplyr::select(.x, "accession","entry_protein_locations")) %>%
-  map(~unnest(.x, fragments)) %>%
-  map(transpose)
-
-
-  map(~dplyr::select(.x, "accession","name","source_database","type"))
-
-itp_meta <- itp %>%
-  map(c("results","metadata")) %>%
-  map(~dplyr::select(.x, "accession","name","source_database","type")) %>%
-  map(transpose)
-
-itp_prot <- itp %>%
-  map(c("proteins")) %>%
-  map(~map(.x, ~dplyr::rename(.x, "uniprot_accession" = "accession"))) %>%
-  map(~map(.x, ~dplyr::rename(.x, "uniprot_source_database" = "source_database"))) %>%
-  map(~map(.x, purrr::flatten)) %>%
-  map(~map(.x, purrr::flatten))
-
-
 ```
