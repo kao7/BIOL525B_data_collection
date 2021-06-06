@@ -201,7 +201,7 @@ fasta <- map(res_f, "content") %>%
 fasta2 <- map(res_f, "content") %>%
   map(~rawToChar(.)) %>%
   transpose() %>%
-  as_tibble(, .name_repair = "unique") %>%
+  as_tibble(.name_repair = "unique") %>%
   separate(`...1`, into = c("one", "two", "three"), sep="\\|") %>%
   separate(three, into = c("four","seq"), sep= "\n", extra = "merge") %>%
   separate(four, into = c("four", "species"), sep = "=", extra = "merge") %>%
@@ -231,7 +231,7 @@ pdl_TRAF <- pdl_withtype %>%
   ungroup() %>%
   mutate(domain_length = end-start) %>%
   mutate(T_n = str_count(protein_type_, "T")) %>%
-  filter(n != T_n) #966
+  # filter(n != T_n) #966
 
 ##This code is for using mostly HSF instead
 # pdl_TRAF <- pdl_withtype %>%
@@ -284,11 +284,58 @@ up_2_genes <- map_dfr(res_genes, ~content(.x, type = 'text/tab-separated-values'
 # up_2_genes <- up_2_genes %>%
   # reduce(rbind) %>%
   rename(uniprot_accession = From, Gene_ID = To) %>%
-  distinct(uniprot_accession, Gene_ID, .keep_all = TRUE) %>%
-  group_by(uniprot_accession) %>%
+  distinct(uniprot_accession, Gene_ID, .keep_all = TRUE)
+
+
+up_2_genes2 <- content(
+  POST(url = "https://www.uniprot.org/uploadlists/",
+                      body = list(from = 'ACC+ID',
+                        to = 'GENENAME',
+                        format = 'tab',
+                        query = (pdl_fasta %>% 
+                                   dplyr::filter(species == "Marchantia polymorpha subsp. ruderalis " | species == "Papaver somniferum " | species == "Asparagus officinalis ") %>% 
+                                   distinct(uniprot_accession) %>% 
+                                   pull() %>% 
+                                   paste0(collapse = " "))
+                    ))
+  , type = 'text/tab-separated-values') %>% 
+  rename(uniprot_accession = From, Gene_ID = To) %>%
+  distinct(uniprot_accession, Gene_ID, .keep_all = TRUE)
+
+up_2_genes3 <- content(
+  POST(url = "https://www.uniprot.org/uploadlists/",
+                      body = list(from = 'ACC+ID',
+                        to = 'GENENAME',
+                        format = 'tab',
+                        query = (left_join(pdl_fasta, rbind(up_2_genes, up_2_genes2), by = "uniprot_accession") %>% 
+                                   filter(is.na(Gene_ID)) %>% 
+                                   distinct(uniprot_accession) %>% 
+                                   pull() %>% 
+                                   paste0(collapse = " "))
+                    ))
+  , type = 'text/tab-separated-values') %>% 
+  rename(uniprot_accession = From, Gene_ID = To) %>%
+  distinct(uniprot_accession, Gene_ID, .keep_all = TRUE)
+
+
+
+mappings <- rbind(up_2_genes, up_2_genes2, up_2_genes3)  %>%
+  mutate(Gene_ID = str_replace(Gene_ID, "LOC_", "")) %>%
+  # group_by(uniprot_accession) %>%
+  # filter(n()>1) # some uniprot accession map to multiple gene IDs, but doesn't matter so much, since we care more about the other way around.
+  group_by(Gene_ID) %>%
+  filter(n()>1) %>%
+  left_join(pdl_fasta) %>%
+  arrange(Gene_ID) %>%
+  ungroup() %>%
+  distinct(Gene_ID)
+
+pdl_fasta_gID <- left_join(pdl_fasta, rbind(up_2_genes, up_2_genes2, up_2_genes3), by = "uniprot_accession") %>%
+  mutate(Gene_ID = str_replace(Gene_ID, "LOC_", ""))
+  group_by(species, subseq, Gene_ID) %>%
   filter(n()>1)
 
-left_join  
+
 no_ID <- anti_join(pdl_TRAF, up_2_genes, by = "uniprot_accession") %>%
   distinct(uniprot_accession, .keep_all = TRUE)
 
