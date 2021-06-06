@@ -17,14 +17,12 @@ BiocManager::install("biomaRt")
 install.packages("tidyverse")
 install.packages(c("httr","jsonlite"))
 install.packages("seqinr")
-install.packages("xml2")
 
 library(tidyverse)
 library(biomaRt)
 library(httr)
 library(jsonlite)
 library(seqinr)
-library(xml2)
 
 #Get genes
 IDs <- scan("diverse_proteomes.txt", character())
@@ -211,38 +209,6 @@ fasta2 <- map(res_f, "content") %>%
   mutate(seq = str_replace_all(seq, "\n", "")) %>%
   rename(uniprot_accession = two)
 
-
-
-
-#STILL HAVE TO GET RID OF DUPLICATES & SHORT SEQUENCES
-
-
-url_list_gene<- tibble(ID= data,
-                   URL = rep("https://www.uniprot.org/uniprot/REPLACE&format=txt", length(data))) %>%
-  mutate(URL = str_replace(URL, "REPLACE", ID))
-
-res_gene <- map(url_list_gene$URL, GET)
-table(unlist(map(res_gene, c(status_code))))
-
-saveRDS(res_gene, "res_gene.RDS")
-res_gene<- readRDS("res_gene.RDS")
-
-genes <- map(res_gene, "content") %>%
-  map(~rawToChar(.))
-  # purrr::flatten() %>%
-  # as.character()
-
-
-gene_annot <- map(genes, ~as_tibble(read_lines(.x))) %>%
-  map(~filter(.x, str_detect(.x$value, "DR   MGI|DR   EnsemblMetazoa|DR   WormBase|DR   EnsemblFungi|DR   EnsemblPlants")) %>% transpose())
-
-
-
-
-
-
-
-
 # pdl_TRAF <- pdl_withtype %>%
 #   group_by(uniprot_accession) %>% 
 #   # dplyr::filter(accession == "IPR018121") %>%
@@ -250,7 +216,6 @@ gene_annot <- map(genes, ~as_tibble(read_lines(.x))) %>%
 #   dplyr::filter(any(accession == "IPR018121")) %>%
 #   dplyr::filter(accession == "IPR008974") %>%
 #   nrow() # count number of HSF TRAF = 82 --> each SINA should be covered by HSF --> can exclude the domain
-
 
 
 pdl_TRAF <- pdl_withtype %>%
@@ -280,14 +245,6 @@ pdl_TRAF <- pdl_withtype %>%
 #   filter(n != T_n)
 
 
-
-
-
-
-
-
-
-
 pdl_fasta <- left_join(pdl_TRAF, fasta2, by = "uniprot_accession") %>%
   mutate(start = start-10)%>%
   mutate(end= end+10) %>%
@@ -302,7 +259,69 @@ pdl_fasta <- left_join(pdl_TRAF, fasta2, by = "uniprot_accession") %>%
   # mutate(fasta_name = str_replace(fasta_name, "_", "of")) %>%
   # separate(species, into =c("genus", "species", "subspeciesname"), sep = " ", remove = FALSE, extra = "merge")
 
+# write_csv(pdl_fasta, "pdl_fasta.csv")
+
 write.fasta(as.list(pdl_fasta$subseq), names= pdl_fasta$fasta_name, file.out = "June5subseq.fasta", as.string = TRUE)
+
+
+#STILL HAVE TO GET RID OF DUPLICATES & SHORT SEQUENCES
+
+
+#str(unique(pdl_TRAF$uniprot_accession)) #729
+
+res_genes <- map(c('MGI_ID','SGD_ID','WORMBASE_ID','ENSEMBLGENOME_ID'),
+                 ~POST(url = "https://www.uniprot.org/uploadlists/",
+                      body = list(from = 'ACC+ID',
+                        to = .x,
+                        format = 'tab',
+                        query = paste0(unique(pdl_TRAF$uniprot_accession),collapse = " ")
+                        )
+                      )
+)
+
+up_2_genes <- map_dfr(res_genes, ~content(.x, type = 'text/tab-separated-values')) %>% 
+# up_2_genes[[3]]$To <- up_2_genes[[3]]$To %>% as.character()
+# up_2_genes <- up_2_genes %>%
+  # reduce(rbind) %>%
+  rename(uniprot_accession = From, Gene_ID = To) %>%
+  distinct(uniprot_accession, Gene_ID, .keep_all = TRUE) %>%
+  group_by(uniprot_accession) %>%
+  filter(n()>1)
+
+left_join  
+no_ID <- anti_join(pdl_TRAF, up_2_genes, by = "uniprot_accession") %>%
+  distinct(uniprot_accession, .keep_all = TRUE)
+
+# 
+# 
+# 
+# url_list_gene<- tibble(ID= data,
+#                    URL = rep("https://www.uniprot.org/uniprot/REPLACE&format=txt", length(data))) %>%
+#   mutate(URL = str_replace(URL, "REPLACE", ID))
+# 
+# res_gene <- map(url_list_gene$URL, GET)
+# table(unlist(map(res_gene, c(status_code))))
+# 
+# saveRDS(res_gene, "res_gene.RDS")
+# res_gene<- readRDS("res_gene.RDS")
+# 
+# genes <- map(res_gene, "content") %>%
+#   map(~rawToChar(.))
+#   # purrr::flatten() %>%
+#   # as.character()
+# 
+# 
+# gene_annot <- map(genes, ~as_tibble(read_lines(.x))) %>%
+#   map(~filter(.x, str_detect(.x$value, "DR   MGI|DR   EnsemblMetazoa|DR   WormBase|DR   EnsemblFungi|DR   EnsemblPlants")) %>% transpose())
+
+
+
+
+
+
+
+
+
 
   
 ```
