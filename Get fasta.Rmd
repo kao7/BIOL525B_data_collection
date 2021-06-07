@@ -230,7 +230,7 @@ pdl_TRAF <- pdl_withtype %>%
   mutate(n = n())%>%
   ungroup() %>%
   mutate(domain_length = end-start) %>%
-  mutate(T_n = str_count(protein_type_, "T")) %>%
+  mutate(T_n = str_count(protein_type_, "T")) #%>%
   # filter(n != T_n) #966
 
 ##This code is for using mostly HSF instead
@@ -255,12 +255,17 @@ pdl_fasta <- left_join(pdl_TRAF, fasta2, by = "uniprot_accession") %>%
   mutate(species_short = word(species, 1, 2)) %>%
   unite(trace, id, n, sep= "/", remove = FALSE) %>%
   unite(trace_ua, uniprot_accession, trace, sep= "_", remove = FALSE) %>%
-  unite(fasta_name, trace_ua, protein_type_, species_short, sep= " ", remove = FALSE)
+  unite(fasta_name, trace_ua, protein_type_, species_short, sep= " ", remove = FALSE) %>%
+  mutate(simp_type = if_else(str_detect(protein_type_, "B"),"Z",
+                             if_else(str_detect(protein_type_, "Z"),"Z",
+                                     if_else(str_detect(protein_type_, "P"), "P",
+                                             if_else(str_detect(protein_type_, "TTTT"), "4T", "T")))))
   # mutate(fasta_name = str_replace(fasta_name, "_", "of")) %>%
   # separate(species, into =c("genus", "species", "subspeciesname"), sep = " ", remove = FALSE, extra = "merge")
 
 # write_csv(pdl_fasta, "pdl_fasta.csv")
 
+write_csv(pdl_fasta, "pdl_fasta.csv")
 write.fasta(as.list(pdl_fasta$subseq), names= pdl_fasta$fasta_name, file.out = "June5subseq.fasta", as.string = TRUE)
 
 
@@ -328,9 +333,26 @@ mappings <- rbind(up_2_genes, up_2_genes2, up_2_genes3)  %>%
   left_join(pdl_fasta) %>%
   arrange(Gene_ID) %>%
   ungroup() %>%
+  mutate(isoform_problem = "Yes") %>%
+  dplyr::select(fasta_name, isoform_problem)
+  
   distinct(Gene_ID)
+saveRDS(mappings, "mappings.RDS")
+mappings<- readRDS("mappings.RDS")
 
-pdl_fasta_gID <- left_join(pdl_fasta, rbind(up_2_genes, up_2_genes2, up_2_genes3), by = "uniprot_accession") %>%
+tree_annot <- left_join(pdl_fasta, mappings) %>%
+  mutate(tip = row_number()) %>%
+  mutate(t = "t")%>%
+  unite("tip", "t","tip", sep = "") %>%
+  relocate(tip)
+
+
+
+gID_mappings <- rbind(up_2_genes, up_2_genes2, up_2_genes3)
+saveRDS(gID_mappings, "gID_mappings.RDS")
+gID_mappings <- readRDS("gID_mappings.RDS")
+
+pdl_fasta_gID <- left_join(pdl_fasta, gID_mappings, by = "uniprot_accession") %>%
   mutate(Gene_ID = str_replace(Gene_ID, "LOC_", ""))
   group_by(species, subseq, Gene_ID) %>%
   filter(n()>1)
@@ -368,6 +390,65 @@ no_ID <- anti_join(pdl_TRAF, up_2_genes, by = "uniprot_accession") %>%
 
 
 
+
+
+
+
+
+BiocManager::install("ggtree")
+BiocManager::install("treeio")
+install.packages("svglite")
+library(ggtree)
+library(treeio)
+library(ape)
+library(svglite)
+
+raxml_file <- system.file("C:/Users/User/Desktop/Phylogeny course/HWK/BIOL525B_data_collection/RAxML-2021.06.05-Run.1/", 
+                          "RAxML_result.file.out.RUN.0",
+                          package= "treeio")
+raxml <- read.tree("RAxML-2021.06.05-Run.1/RAxML_mesquite_ML_Trees.file.out")
+raxml <- raxml[[1]]
+
+
+
+df <- data.frame(Species = tree_annot$species_short,
+                 Isoform_issues = tree_annot$isoform_problem)
+rownames(df) <- tree_annot$tip
+
+
+raxml_annot <- ggtree(raxml, layout = "circular") %<+% tree_annot +
+  geom_tiplab(aes(label= fasta_name, color = simp_type), size = 2) 
+
+raxml_annot_ <- gheatmap(raxml_annot, df[, "Species", drop = F], offset= 1, width = 0.03, colnames = FALSE)
+raxml_annot_2 <-gheatmap(raxml_annot_, df[, "Isoform_issues", drop = F], offset=1.3, width = 0.03, colnames = FALSE)
+
+
+
++
+  geom_tiplab(aes(label = species_short, color = species_short)
+  # geom_tiplab(aes(label = species_short, color = species_short), align = T, size = 2, linetype = NA, offset = 1, hjust = 0.05) +
+
+
+
+  
+  
+
+  geom_fruit(data = tree_annot,
+             geom = geom_tile,
+             mappings = )
+
+
+
+
+
+
+ggsave("raxml_annotated.pdf", plot = raxml_annot_2,
+       device = "pdf", 
+       width = 1000, 
+       height =1000, 
+       units = "mm",
+       dpi=300,
+       limitsize = FALSE)
 
 
   
