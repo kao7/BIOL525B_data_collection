@@ -246,6 +246,7 @@ pdl_TRAF <- pdl_withtype %>%
 
 
 pdl_fasta <- left_join(pdl_TRAF, fasta2, by = "uniprot_accession") %>%
+  mutate(subseq_4_compare = str_sub(seq, start = start, end = end)) %>%
   mutate(start = start-10)%>%
   mutate(end= end+10) %>%
   mutate(start = if_else(start <0, 0, start)) %>%
@@ -259,14 +260,18 @@ pdl_fasta <- left_join(pdl_TRAF, fasta2, by = "uniprot_accession") %>%
   mutate(simp_type = if_else(str_detect(protein_type_, "B"),"Z",
                              if_else(str_detect(protein_type_, "Z"),"Z",
                                      if_else(str_detect(protein_type_, "P"), "P",
-                                             if_else(str_detect(protein_type_, "TTTT"), "4T", "T")))))
+                                             if_else(str_detect(protein_type_, "TTTT"), "4T", "T"))))) %>%
+  mutate(tip = row_number()) %>%
+  mutate(t = "t")%>%
+  unite("tip", "t","tip", sep = "") %>%
+  relocate(tip)
   # mutate(fasta_name = str_replace(fasta_name, "_", "of")) %>%
   # separate(species, into =c("genus", "species", "subspeciesname"), sep = " ", remove = FALSE, extra = "merge")
 
 # write_csv(pdl_fasta, "pdl_fasta.csv")
 
-write_csv(pdl_fasta, "pdl_fasta.csv")
-write.fasta(as.list(pdl_fasta$subseq), names= pdl_fasta$fasta_name, file.out = "June5subseq.fasta", as.string = TRUE)
+# write_csv(pdl_fasta, "pdl_fasta.csv")
+# write.fasta(as.list(pdl_fasta$subseq), names= pdl_fasta$fasta_name, file.out = "June5subseq.fasta", as.string = TRUE)
 
 
 #STILL HAVE TO GET RID OF DUPLICATES & SHORT SEQUENCES
@@ -323,39 +328,132 @@ up_2_genes3 <- content(
   distinct(uniprot_accession, Gene_ID, .keep_all = TRUE)
 
 
-
-mappings <- rbind(up_2_genes, up_2_genes2, up_2_genes3)  %>%
-  mutate(Gene_ID = str_replace(Gene_ID, "LOC_", "")) %>%
-  # group_by(uniprot_accession) %>%
-  # filter(n()>1) # some uniprot accession map to multiple gene IDs, but doesn't matter so much, since we care more about the other way around.
-  group_by(Gene_ID) %>%
-  filter(n()>1) %>%
-  left_join(pdl_fasta) %>%
-  arrange(Gene_ID) %>%
-  ungroup() %>%
-  mutate(isoform_problem = "Yes") %>%
-  dplyr::select(fasta_name, isoform_problem)
-  
-  distinct(Gene_ID)
-saveRDS(mappings, "mappings.RDS")
-mappings<- readRDS("mappings.RDS")
-
-tree_annot <- left_join(pdl_fasta, mappings) %>%
-  mutate(tip = row_number()) %>%
-  mutate(t = "t")%>%
-  unite("tip", "t","tip", sep = "") %>%
-  relocate(tip)
-
-
-
 gID_mappings <- rbind(up_2_genes, up_2_genes2, up_2_genes3)
 saveRDS(gID_mappings, "gID_mappings.RDS")
 gID_mappings <- readRDS("gID_mappings.RDS")
 
-pdl_fasta_gID <- left_join(pdl_fasta, gID_mappings, by = "uniprot_accession") %>%
-  mutate(Gene_ID = str_replace(Gene_ID, "LOC_", ""))
-  group_by(species, subseq, Gene_ID) %>%
-  filter(n()>1)
+
+#get gene IDS for all sequences
+pdl_fasta_gID <- gID_mappings  %>%
+  mutate(Gene_ID = str_replace(Gene_ID, "LOC_", "")) %>%
+  mutate(Gene_ID = str_replace(Gene_ID, "v3$", "")) %>%
+  # group_by(uniprot_accession) %>%
+  # filter(n()>1) # some uniprot accession map to multiple gene IDs, but doesn't matter so much, since we care more about the other way around.
+  group_by(Gene_ID) %>%
+  mutate(isoform_problem = if_else(n()>1,"Yes", "No")) %>%
+  group_by(uniprot_accession) %>%
+  mutate(duplicated_UA = if_else(n()>1,"Yes", "No"))%>%
+  right_join(pdl_fasta) %>%
+  relocate(tip) %>%
+  mutate(uniprot_accession_l = nchar(uniprot_accession)) # note this includes 8 situations where one uniprot matches to multiple gene IDs
+
+# saveRDS(pdl_fasta_gID, "pdl_fasta_gID.RDS")
+# pdl_fasta_gID<- readRDS("pdl_fasta_gID.RDS")
+
+
+pdl_fasta_gID <- pdl_fasta_gID %>%
+  group_by(Gene_ID) %>%
+  arrange(nchar(uniprot_accession), .by_group = TRUE) %>% # to keep shorter accession
+  ungroup() %>%
+  group_by(Gene_ID, uniprot_accession) %>%
+  # arrange(trace_ua, .by_group = TRUE) %>%
+  mutate(subseq_c = paste0(subseq_4_compare, collapse = "_")) %>% # collapse TRAF domains from each uniprot_accession into one
+  ungroup() %>%
+  group_by(Gene_ID) %>%
+  arrange(nchar(uniprot_accession), .by_group = TRUE) %>% #to keep the identical sequence  with the shorter accession name
+  # group_by(Gene_ID) %>%
+  distinct(trace, subseq_c, .keep_all = TRUE)%>%
+  ungroup() 
+  
+
+#delete isoforms that have less than all domains  
+UA_2_del <- pdl_fasta_gID %>%  
+  group_by(Gene_ID) %>%
+  filter(n()>1) %>%
+  distinct(n, .keep_all = TRUE) %>%
+  group_by(Gene_ID) %>%
+  filter(n()>1) %>%
+  group_by(Gene_ID) %>%
+  arrange(desc(n), .by_group = TRUE) %>%
+  ungroup() %>%
+  distinct(Gene_ID, .keep_all = TRUE) %>%
+  dplyr::select(uniprot_accession, Gene_ID, n)
+
+
+pdl_fasta_gID_ <- anti_join(pdl_fasta_gID, UA_2_del, by = "uniprot_accession") %>%
+  # distinct(uniprot_accession, .keep_all = TRUE) %>%
+  # group_by(seq,subseq_c) %>%
+  group_by(Gene_ID, trace) %>%
+  # filter(n()>1) %>%
+  # distinct(Gene_ID)
+  mutate(isoform_to_man_remove = if_else(n()>1,"Yes", "No")) %>%
+  ungroup() %>%
+  mutate(domain_size = if_else(domain_length <90, "SHORT", "OK"))
+
+    # group_by(uniprot_accession) %>%
+  # filter(n()>1) # some uniprot accession map to multiple gene IDs, but doesn't matter so much, since we care more about the other way around.
+
+
+#delete isoforms that have short domain
+UA_2_del2 <- pdl_fasta_gID_%>%  
+  group_by(Gene_ID, trace) %>%
+  filter(n()>1) %>%
+  ungroup() %>% group_by(uniprot_accession) %>%
+  mutate(short = if_else(any(domain_size == "SHORT"), "SHORT", "NORMAL")) %>%
+  ungroup() %>% group_by(Gene_ID) %>%
+  # filter(!any(short == "NORMAL")) #check if any only have "short" sequences - only one - remove A0A2K1XQX7, keep A0A2K1XQY0
+  filter(short == "SHORT") %>%
+  filter(uniprot_accession != "A0A2K1XQY0") %>%
+  distinct(uniprot_accession)
+
+pdl_fasta_gID_ <- anti_join(pdl_fasta_gID_, UA_2_del2, by = "uniprot_accession") #%>%  
+  # group_by(Gene_ID, trace) %>%
+  # filter(n()>1) %>%
+  # ungroup() %>% group_by(Gene_ID) %>%
+  # relocate(domain_length, start, end, protein_length)
+
+#delete isoforms - manual annotation
+UA_2_del3 <- tibble(uniprot_accession = strsplit("A8MQL1 F4I476 A0A1P8ARC9 A0A1P8AX66 O48777 F4JDF6 Q4PSK6 A0A1P8B3G0 F4JKT0 A8MR02 F4KG56 A0A1P8BC00 A0A0A6YWE7 A0A0A6YXL9 A0A0A6YWE7 Q6A4J8 A0A0A6YVW8 E0CYU8 A0A0N7KEM0 A0A7I4BK46 A0A7I4F8L4 A0A2K1K5T7 G3MU79 Q17782 P34324 A0A3N7G5T9 U7DYS1 A0A2K1X3E1 A0A3N7G431 A0A3N7G464 A0A3N7G7H1 A0A3N7FWR0 A0A3N7FP35 A0A3N7FDW1 A0A2K1ZES4 A0A2K2A8B1", " ")[[1]], by = "uniprot_accession")
+
+
+pdl_fasta_gID_ <- anti_join(pdl_fasta_gID_, UA_2_del3, by = "uniprot_accession")
+
+#delete genes that have identical sequences (uniprot IDs mapping to multiple genes)
+UA_2_del4 <- pdl_fasta_gID_ %>%  
+  group_by(uniprot_accession, trace) %>%
+  filter(n()>1) %>%
+  arrange(nchar(Gene_ID)) %>%
+  ungroup() %>% group_by(uniprot_accession) %>%
+  slice(1)
+
+pdl_fasta_gID_ <- anti_join(pdl_fasta_gID_, UA_2_del4, by = "uniprot_accession") %>%
+  group_by(subseq) %>%
+  filter(n()>1) #13 sequences still have 
+
+
+#    mutate(inside = map(subseq_4_compare, ~str_detect(.x, subseq_4_compare)))
+# adf<-  map(pdl_fasta_gID_$subseq_4_compare, ~str_detect(.x, pdl_fasta_gID_$subseq_4_compare))
+
+
+
+tree_annot <- pdl_fasta_gID_ %>%
+  ungroup() %>%
+  arrange(nchar(Gene_ID))%>%
+  distinct(tip, .keep_all = TRUE) %>%
+  unite(UP_ID,  uniprot_accession, Gene_ID, trace, protein_type_, species_short)
+
+write_csv(tree_annot, "pdl_fasta.csv")
+write.fasta(as.list(tree_annot$subseq), names= tree_annot$UP_ID, file.out = "June7subseq_noiso.fasta", as.string = TRUE)
+
+
+
+
+
+
+
+
+
+
 
 
 no_ID <- anti_join(pdl_TRAF, up_2_genes, by = "uniprot_accession") %>%
@@ -410,39 +508,40 @@ raxml <- read.tree("RAxML-2021.06.05-Run.1/RAxML_mesquite_ML_Trees.file.out")
 raxml <- raxml[[1]]
 
 
-
-df <- data.frame(Species = tree_annot$species_short,
-                 Isoform_issues = tree_annot$isoform_problem)
-rownames(df) <- tree_annot$tip
+# 
+# df <- data.frame(Species = tree_annot$species_short,
+#                  Isoform_to_man_remove = tree_annot$isoform_to_man_remove)
+# rownames(df) <- tree_annot$tip
 
 
 raxml_annot <- ggtree(raxml, layout = "circular") %<+% tree_annot +
-  geom_tiplab(aes(label= fasta_name, color = simp_type), size = 2) 
+  geom_tiplab(aes(label= UP_ID, color = isoform_to_man_remove), size = 2) +
+  geom_tippoint(aes(fill = domain_size), shape = 21, size = 2) 
 
-raxml_annot_ <- gheatmap(raxml_annot, df[, "Species", drop = F], offset= 1, width = 0.03, colnames = FALSE)
-raxml_annot_2 <-gheatmap(raxml_annot_, df[, "Isoform_issues", drop = F], offset=1.3, width = 0.03, colnames = FALSE)
-
-
-
-+
-  geom_tiplab(aes(label = species_short, color = species_short)
-  # geom_tiplab(aes(label = species_short, color = species_short), align = T, size = 2, linetype = NA, offset = 1, hjust = 0.05) +
+raxml_annot_ <- gheatmap(raxml_annot, tree_annot %>% column_to_rownames(var = "tip") %>%dplyr::select(species), offset= 1, width = 0.03, colnames = FALSE)
+# raxml_annot_2 <-gheatmap(raxml_annot_, df[, "Isoform_to_man_remove", drop = F], offset=1.3, width = 0.03, colnames = FALSE)
 
 
 
-  
-  
+# +
+#   geom_tiplab(aes(label = species_short, color = species_short)
+#   # geom_tiplab(aes(label = species_short, color = species_short), align = T, size = 2, linetype = NA, offset = 1, hjust = 0.05) +
+# 
+# 
+# 
+#   
+#   
+# 
+#   geom_fruit(data = tree_annot,
+#              geom = geom_tile,
+#              mappings = )
 
-  geom_fruit(data = tree_annot,
-             geom = geom_tile,
-             mappings = )
 
 
 
 
 
-
-ggsave("raxml_annotated.pdf", plot = raxml_annot_2,
+ggsave("raxml_annotated.pdf", plot = raxml_annot_,
        device = "pdf", 
        width = 1000, 
        height =1000, 
