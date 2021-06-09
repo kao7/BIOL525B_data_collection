@@ -476,74 +476,8 @@ tree_annot <- pdl_fasta_gID_ %>%
   unite(UP_ID,  uniprot_accession, Gene_ID, trace, protein_type_, species_short, remove = FALSE)
 
 write_csv(tree_annot, "pdl_fasta.csv")
-write.fasta(as.list(tree_annot$subseq), names= tree_annot$UP_ID, file.out = "June7subseq_noiso.fasta", as.string = TRUE)
+write.fasta(as.list(tree_annot$subseq), names= tree_annot$UP_ID, file.out = "June9subseq_noiso.fasta", as.string = TRUE)
 tree_annot <- read.csv("pdl_fasta.csv")
-
-
-tax_TT <- read_tsv("RAxML-2021.06.08-Run.1/taxonNamesTranslationTable.txt", col_names = c("tip.label", "UP_ID"))
-tree_annot <- left_join(tree_annot,tax_TT, by = "UP_ID") %>%
-  relocate(tip.label)
-
-
-#for notung
-notung <- tree_annot %>%
-  unite(notung_id, species_short, uniprot_accession, sep = " ", remove = FALSE) %>%
-  unite(notung_id, notung_id,Gene_ID,id,n,sep= "", remove = FALSE) %>%
-  mutate(notung_id = str_replace_all(notung_id, "_", "")) %>%
-  mutate(notung_id = str_replace_all(notung_id, "\\.", "")) %>%
-  mutate(notung_id = str_replace_all(notung_id, "\\:", "")) %>%
-
-  dplyr::select(tip.label, species_short)
-write_delim(notung, "notung.txt", delim = "\t")
-
-
-
-
-
-
-
-OMG - might have made huge mistake - label of missing T0??!?!?!?
-
-
-
-
-no_ID <- anti_join(pdl_TRAF, up_2_genes, by = "uniprot_accession") %>%
-  distinct(uniprot_accession, .keep_all = TRUE)
-
-# 
-# 
-# 
-# url_list_gene<- tibble(ID= data,
-#                    URL = rep("https://www.uniprot.org/uniprot/REPLACE&format=txt", length(data))) %>%
-#   mutate(URL = str_replace(URL, "REPLACE", ID))
-# 
-# res_gene <- map(url_list_gene$URL, GET)
-# table(unlist(map(res_gene, c(status_code))))
-# 
-# saveRDS(res_gene, "res_gene.RDS")
-# res_gene<- readRDS("res_gene.RDS")
-# 
-# genes <- map(res_gene, "content") %>%
-#   map(~rawToChar(.))
-#   # purrr::flatten() %>%
-#   # as.character()
-# 
-# 
-# gene_annot <- map(genes, ~as_tibble(read_lines(.x))) %>%
-#   map(~filter(.x, str_detect(.x$value, "DR   MGI|DR   EnsemblMetazoa|DR   WormBase|DR   EnsemblFungi|DR   EnsemblPlants")) %>% transpose())
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -565,6 +499,21 @@ ggsave("raxml_annotated2.pdf", plot = raxml_annot,
        dpi=300,
        limitsize = FALSE)
 
+#for notung
+
+tax_TT <- read_tsv("RAxML-2021.06.08-Run.1/taxonNamesTranslationTable.txt", col_names = c("tip.label", "UP_ID"))
+tree_annot <- left_join(tree_annot,tax_TT, by = "UP_ID") %>%
+  relocate(tip.label)
+
+notung <- tree_annot %>%
+  unite(notung_id, species_short, uniprot_accession, sep = " ", remove = FALSE) %>%
+  unite(notung_id, notung_id,Gene_ID,id,n,sep= "", remove = FALSE) %>%
+  mutate(notung_id = str_replace_all(notung_id, "_", "")) %>%
+  mutate(notung_id = str_replace_all(notung_id, "\\.", "")) %>%
+  mutate(notung_id = str_replace_all(notung_id, "\\:", "")) %>%
+
+  dplyr::select(tip.label, species_short)
+write_delim(notung, "notung.txt", delim = "\t")
 
 
 
@@ -572,67 +521,4 @@ ggsave("raxml_annotated2.pdf", plot = raxml_annot,
 
 
   
-```
-
-##look up duplicates
-```{r}
-
-
-ensemblp <- useEnsemblGenomes(biomart = "plants_mart")
-ensemblp_datasets <- as_tibble(listDatasets(ensemblp)) %>%
-  separate(description, into = c("genus", "species", "speciesdetails"), sep = " ", extra = "merge")
-
-species_to_search <- distinct(pdl_fasta, genus, species, subspeciesname) %>% dplyr::select(genus,species,subspeciesname) %>%
-  left_join(ensemblp_datasets) %>%
-  drop_na(dataset) %>%
-  filter(!str_detect(dataset, "oindica_eg_gene")) %>%
-  pull(dataset)
-
-pdl_fasta_ <- left_join(pdl_fasta, species_to_search) %>%
-  drop_na(dataset) %>%
-  group_by(dataset)
-
-pdl_fasta_split <- pdl_fasta_ %>%
-  group_split(.keep=TRUE)
-
-search_biomart_filters <- function(dataset){
-  as_tibble(
-    rbind(
-    searchAttributes(useEnsemblGenomes(biomart = "plants_mart", dataset = dataset), pattern ="uniprot"),
-    searchAttributes(useEnsemblGenomes(biomart = "plants_mart", dataset = dataset), pattern ="swiss")
-  ))
-}
-
-searchAttributes(useEnsemblGenomes(biomart = "plants_mart", dataset = "athaliana_eg_gene"), pattern ="uniprot")
-biomart_filters <- map(species_to_search$dataset, search_biomart_filters)
-
-
-
-
-
-Filters <- "uniprotsptrembl"
-Attributes <- c("ensembl_gene_id","ensembl_transcript_id", "uniprotsptrembl")
-
-Search_biomart <- function(search_terms, biomart = "plants_mart", attributes = Attributes, filters = Filters){
-  mart_ID <- useEnsemblGenomes(biomart = biomart, dataset = search_terms$dataset[[1]])
-  as_tibble(
-    getBM(attributes = attributes,
-      filters = filters,
-      values = search_terms$uniprot_accession, 
-      mart = mart_ID)
-  )
-}
-Ensembl_annot <- map(pdl_fasta_split, Search_biomart)
-pdl_fasta_split <- pdl_fasta_split[-4]
-Ensembl_annot2 <- map(pdl_fasta_split, Search_biomart, filters = "uniprotswissprot", attributes = c("ensembl_gene_id","ensembl_transcript_id", "uniprotswissprot"))
-Ensembl_annot_full <- c(Ensembl_annot, Ensembl_annot2) %>%
-  discard(function(x) nrow(x) == 0) %>%
-  reduce(full_join, by = "ensembl_gene_id")
-
-
-#TIR_list <- map(dataset_id, Search_biomart) #if looking through multiple species
-#str(TIR_list)
-#TIR_list <- TIR_list$athaliana_eg_gene 
-
-TIR_list <- Search_biomart(dataset_id)
 ```
