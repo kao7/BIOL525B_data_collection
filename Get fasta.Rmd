@@ -261,7 +261,7 @@ pdl_fasta <- left_join(pdl_TRAF, fasta2, by = "uniprot_accession") %>%
                              if_else(str_detect(protein_type_, "Z"),"Z",
                                      if_else(str_detect(protein_type_, "P"), "P",
                                              if_else(str_detect(protein_type_, "TTTT"), "4T", "T"))))) %>%
-  mutate(tip = row_number()) %>%
+  mutate(tip = row_number()-1) %>%
   mutate(t = "t")%>%
   unite("tip", "t","tip", sep = "") %>%
   relocate(tip)
@@ -412,8 +412,45 @@ pdl_fasta_gID_ <- anti_join(pdl_fasta_gID_, UA_2_del2, by = "uniprot_accession")
   # ungroup() %>% group_by(Gene_ID) %>%
   # relocate(domain_length, start, end, protein_length)
 
+#this section for manually check which isoforms should be removed
+
+tree_annot <- pdl_fasta_gID_ %>%
+  ungroup() %>%
+  arrange(nchar(Gene_ID))%>%
+  # group_by(tip)%>% 
+  # filter(n()>1)
+  distinct(tip, .keep_all = TRUE) %>%  #it's necessary to remove duplicated tips at this point since haven't removed some dups yet
+  unite(UP_ID,  uniprot_accession, Gene_ID, trace, protein_type_, species_short, remove = FALSE)
+
+tax_TT <- read_tsv("RAxML-2021.06.05-Run.1/taxonNamesTranslationTable.txt", col_names = c("tip.label", "fasta_name"))
+tree_annot <- left_join(tree_annot,tax_TT, by = "fasta_name") %>%
+  relocate(tip.label)
+
+
+BiocManager::install("ggtree")
+BiocManager::install("treeio")
+install.packages("svglite")
+library(ggtree)
+library(treeio)
+library(ape)
+library(svglite)
+
+raxml <- read.newick("RAxML-2021.06.05-Run.1/RAxML_bestTree.file.out")
+raxml_annot <- ggtree(raxml, layout = "circular") %<+% tree_annot +
+  geom_tiplab(aes(label= UP_ID, color = simp_type), size = 2) +
+  geom_tippoint(aes(fill = species), shape = 21, size = 2) 
+
+raxml_annot_ <- gheatmap(raxml_annot, tree_annot %>% column_to_rownames(var = "tip.label") %>%dplyr::select(species), offset= 1, width = 0.03, colnames = FALSE)
+ggsave("raxml_annotated_old_fixed.pdf", plot = raxml_annot_,
+       device = "pdf", 
+       width = 1000, 
+       height =1000, 
+       units = "mm",
+       dpi=300,
+       limitsize = FALSE)
+
 #delete isoforms - manual annotation
-UA_2_del3 <- tibble(uniprot_accession = strsplit("A8MQL1 F4I476 A0A1P8ARC9 A0A1P8AX66 O48777 F4JDF6 Q4PSK6 A0A1P8B3G0 F4JKT0 A8MR02 F4KG56 A0A1P8BC00 A0A0A6YWE7 A0A0A6YXL9 A0A0A6YWE7 Q6A4J8 A0A0A6YVW8 E0CYU8 A0A0N7KEM0 A0A7I4BK46 A0A7I4F8L4 A0A2K1K5T7 G3MU79 Q17782 P34324 A0A3N7G5T9 U7DYS1 A0A2K1X3E1 A0A3N7G431 A0A3N7G464 A0A3N7G7H1 A0A3N7FWR0 A0A3N7FP35 A0A3N7FDW1 A0A2K1ZES4 A0A2K2A8B1", " ")[[1]], by = "uniprot_accession")
+UA_2_del3 <- tibble(uniprot_accession = strsplit("A8MQL1 F4I476 A0A1P8ARC9 A0A1P8AX66 O48777 F4JDF6 F4J5T4 A0A1P8B3G0 F4JKT0 A8MR02 F4KG56 A0A1P8BC00 A0A0A6YWE7 A0A0A6YXL9 Q6A4J8 Q717B2 Q6YCH1 Q6Z6Z3 Q0ZCE4 U7DYS1 A0A2K1X3E1 A0A3N7G431 A0A3N7G464  A0A3N7G7H1 A0A3N7HVW6 A0A7I4BK46 A0A7I4F8L4 A0A7I4EDU9 G3MU79 Q17782 P34324 A0A3N7FDW1 A0A2K1ZES4 A0A3N7FP35 B9I5C4", " ")[[1]], by = "uniprot_accession")
 
 
 pdl_fasta_gID_ <- anti_join(pdl_fasta_gID_, UA_2_del3, by = "uniprot_accession")
@@ -427,27 +464,40 @@ UA_2_del4 <- pdl_fasta_gID_ %>%
   slice(1)
 
 pdl_fasta_gID_ <- anti_join(pdl_fasta_gID_, UA_2_del4, by = "uniprot_accession") #%>%
-  # group_by(subseq) %>%
-  # filter(n()>1)  #13 sequences still have duplicates 
-
-
-#    mutate(inside = map(subseq_4_compare, ~str_detect(.x, subseq_4_compare)))
-# adf<-  map(pdl_fasta_gID_$subseq_4_compare, ~str_detect(.x, pdl_fasta_gID_$subseq_4_compare))
+  # group_by(subseq, seq) %>%
+  # filter(n()>1)  #13 subseq are duplicated, but they come from different genes that have a different full-length sequence - so probably a recent duplication?
 
 
 
 tree_annot <- pdl_fasta_gID_ %>%
-  ungroup() %>%
+  ungroup() %>% #group_by(Gene_ID, trace, tip) %>% filter(n()>1) #check if any dup tips
   arrange(nchar(Gene_ID))%>%
-  distinct(tip, .keep_all = TRUE) %>%
+  # distinct(tip, .keep_all = TRUE) %>% #only if necessary
   unite(UP_ID,  uniprot_accession, Gene_ID, trace, protein_type_, species_short, remove = FALSE)
 
 write_csv(tree_annot, "pdl_fasta.csv")
 write.fasta(as.list(tree_annot$subseq), names= tree_annot$UP_ID, file.out = "June7subseq_noiso.fasta", as.string = TRUE)
+tree_annot <- read.csv("pdl_fasta.csv")
+
 
 tax_TT <- read_tsv("RAxML-2021.06.08-Run.1/taxonNamesTranslationTable.txt", col_names = c("tip.label", "UP_ID"))
 tree_annot <- left_join(tree_annot,tax_TT, by = "UP_ID") %>%
   relocate(tip.label)
+
+
+#for notung
+notung <- tree_annot %>%
+  unite(notung_id, species_short, uniprot_accession, sep = " ", remove = FALSE) %>%
+  unite(notung_id, notung_id,Gene_ID,id,n,sep= "", remove = FALSE) %>%
+  mutate(notung_id = str_replace_all(notung_id, "_", "")) %>%
+  mutate(notung_id = str_replace_all(notung_id, "\\.", "")) %>%
+  mutate(notung_id = str_replace_all(notung_id, "\\:", "")) %>%
+
+  dplyr::select(tip.label, species_short)
+write_delim(notung, "notung.txt", delim = "\t")
+
+
+
 
 
 
@@ -494,61 +544,7 @@ no_ID <- anti_join(pdl_TRAF, up_2_genes, by = "uniprot_accession") %>%
 
 
 
-BiocManager::install("ggtree")
-BiocManager::install("treeio")
-install.packages("svglite")
-library(ggtree)
-library(treeio)
-library(ape)
-library(svglite)
 
-raxml_file <- system.file("C:/Users/User/Desktop/Phylogeny course/HWK/BIOL525B_data_collection/RAxML-2021.06.05-Run.1/", 
-                          "RAxML_result.file.out.RUN.0",
-                          package= "treeio")
-raxml <- read.tree("RAxML-2021.06.05-Run.1/RAxML_mesquite_ML_Trees.file.out")
-raxml <- raxml[[1]]
-
-
-# 
-# df <- data.frame(Species = tree_annot$species_short,
-#                  Isoform_to_man_remove = tree_annot$isoform_to_man_remove)
-# rownames(df) <- tree_annot$tip
-
-
-raxml_annot <- ggtree(raxml, layout = "circular") %<+% tree_annot +
-  geom_tiplab(aes(label= UP_ID, color = isoform_to_man_remove), size = 2) +
-  geom_tippoint(aes(fill = domain_size), shape = 21, size = 2) 
-
-raxml_annot_ <- gheatmap(raxml_annot, tree_annot %>% column_to_rownames(var = "tip") %>%dplyr::select(species), offset= 1, width = 0.03, colnames = FALSE)
-# raxml_annot_2 <-gheatmap(raxml_annot_, df[, "Isoform_to_man_remove", drop = F], offset=1.3, width = 0.03, colnames = FALSE)
-
-
-
-# +
-#   geom_tiplab(aes(label = species_short, color = species_short)
-#   # geom_tiplab(aes(label = species_short, color = species_short), align = T, size = 2, linetype = NA, offset = 1, hjust = 0.05) +
-# 
-# 
-# 
-#   
-#   
-# 
-#   geom_fruit(data = tree_annot,
-#              geom = geom_tile,
-#              mappings = )
-
-
-
-
-
-
-ggsave("raxml_annotated.pdf", plot = raxml_annot_,
-       device = "pdf", 
-       width = 1000, 
-       height =1000, 
-       units = "mm",
-       dpi=300,
-       limitsize = FALSE)
 
 
 raxml <- read.newick("RAxML-2021.06.08-Run.1/RAxML_bestTree.result")
