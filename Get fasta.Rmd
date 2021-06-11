@@ -430,10 +430,12 @@ tree_annot <- left_join(tree_annot,tax_TT, by = "fasta_name") %>%
 BiocManager::install("ggtree")
 BiocManager::install("treeio")
 install.packages("svglite")
+install.packages("geiger")
 library(ggtree)
 library(treeio)
 library(ape)
 library(svglite)
+library(geiger)
 
 raxml <- read.newick("RAxML-2021.06.05-Run.1/RAxML_bestTree.file.out")
 raxml_annot <- ggtree(raxml, layout = "circular") %<+% tree_annot +
@@ -498,6 +500,110 @@ ggsave("raxml_annotated2.pdf", plot = raxml_annot,
        units = "mm",
        dpi=300,
        limitsize = FALSE)
+
+#Look at IQ.TREE
+
+#write iqtree without tip labels for bootstrap value matching thru RAxML
+tree_annot <- read.csv("pdl_fasta.csv")
+iqtree <- read.newick("IQ-tree_ML_treesearch2_2 best_tree/output.treefile")
+tree_annot <- tree_annot %>% 
+  mutate(a = row_number()-1) %>%
+  mutate(b = "t") %>%
+  unite("tip_aln", "b","a", sep = "") %>% 
+  relocate(tip_aln) %>%
+  rename(tip.label = UP_ID) %>%
+  mutate(tip.label = str_replace(tip.label, " ", "_")) %>%
+  mutate(tip.label = str_replace(tip.label, "\\:", "_"))%>%
+  mutate(tip_a = tip_aln) %>%
+  relocate(tip_aln, tip_a)
+
+
+iqtree_mapping <- left_join(tibble(tip.label = iqtree$tip.label), (tree_annot %>% dplyr::select(tip.label, tip_aln)))
+
+
+iqtree$tip.label <- iqtree_mapping$tip_aln
+write.tree(iqtree, file = "IQ-tree_ML_treesearch2_2 best_tree/combined with boostrap/iqtree_notaxnames.besttree", digits = 15)
+#now go do the mapping
+
+#now read in the mapped file
+iqtree_bs <- read.newick("IQ-tree_ML_treesearch2_2 best_tree/combined with boostrap/RAxML_bipartitions.iqtree_besttree_with_raxml_boostrap.phy")
+
+tree_annot <- tree_annot %>%
+  mutate(group = if_else(str_detect(species, "elegans|musculus|cerevisiae"), "Opisthokonta", "Archaeplastida"))
+
+
+
+
+iqtree_annot <- ggtree(iqtree_bs, layout="equal_angle") %<+% tree_annot +
+  geom_tiplab(aes(label= tip.label, color = group), size = 2) +
+  geom_tippoint(aes(fill = species), shape = 21, size = 2) +
+  # geom_text(aes(label=node))
+  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)) & as.numeric(label) > 50), hjust=2, vjust =1, size = 2)
+
+# raxml_annot_ <- gheatmap(raxml_annot, tree_annot %>% column_to_rownames(var = "tip.label") %>%dplyr::select(species), offset= 1, width = 0.03, colnames = FALSE)
+ggsave("IQ-TREE_best_tree_annot.pdf", plot = iqtree_annot,
+       device = "pdf", 
+       width = 1000, 
+       height =1000, 
+       units = "mm",
+       dpi=300,
+       limitsize = FALSE)
+
+
+#now try with the RAxML_tree
+raxml_bs <- read.newick("RAxML-2021.06.10-run.9GAMMA JTT F/combined with boostrap/RAxML_bipartitions.mapped")
+
+raxml_bs_annot <- ggtree(raxml_bs) %<+% tree_annot +
+  geom_tiplab(aes(label= tip.label, color = simp_type), size = 2) +
+  geom_tippoint(aes(fill = species), shape = 21, size = 2) +
+  # geom_text(aes(label=node))
+  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)) & as.numeric(label) > 50), hjust=2, vjust =1, size = 2)
+
+# raxml_annot_ <- gheatmap(raxml_annot, tree_annot %>% column_to_rownames(var = "tip.label") %>%dplyr::select(species), offset= 1, width = 0.03, colnames = FALSE)
+ggsave("RAxML_BS_best_tree_annot.pdf", plot = iqtree_annot,
+       device = "pdf", 
+       width = 1000, 
+       height =1000, 
+       units = "mm",
+       dpi=300,
+       limitsize = FALSE)
+
+
+
+
+
+
+
+
+
+
+
+
+
+TTTT_group <- tibble(tip_aln = c(tips(iqtree_bs,790))) %>% #, "t134")
+  left_join(tree_annot) %>%
+  distinct(Gene_ID, .keep_all = TRUE)
+
+write.fasta(as.list(TTTT_group$seq), names= TTTT_group$tip.label, file.out = "June10_TTTT_fullseq.fasta", as.string = TRUE)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #for notung
 
