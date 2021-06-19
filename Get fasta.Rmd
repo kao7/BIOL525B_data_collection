@@ -529,25 +529,79 @@ write.tree(iqtree, file = "IQ-tree_ML_treesearch2_2 best_tree/combined with boos
 iqtree_bs <- read.newick("IQ-tree_ML_treesearch2_2 best_tree/combined with boostrap/RAxML_bipartitions.iqtree_besttree_with_raxml_boostrap.phy")
 
 tree_annot <- tree_annot %>%
-  mutate(group = if_else(str_detect(species, "elegans|musculus|cerevisiae"), "Opisthokonta", "Archaeplastida"))
+  mutate(group = if_else(str_detect(species, "elegans|musculus|cerevisiae"), "Opisthokonta", "Archaeplastida")) %>%
+  unite(Text_color_label, species_short, protein_type_, trace_ua, sep = " ", remove = FALSE)
 
 
 
 
-iqtree_annot <- ggtree(iqtree_bs, layout="equal_angle") %<+% tree_annot +
-  geom_tiplab(aes(label= tip.label, color = group), size = 2) +
-  geom_tippoint(aes(fill = species), shape = 21, size = 2) +
-  # geom_text(aes(label=node))
-  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)) & as.numeric(label) > 50), hjust=2, vjust =1, size = 2)
+iqtree_annot <- ggtree(iqtree_bs, layout="circular") %<+% tree_annot +
+  geom_tiplab(aes(label= Text_color_label, color = group), size = 2) +
+  geom_tippoint(aes(fill = domain_size), shape = 21, size = 2) +
+  # geom_text(aes(label=node)) +
+  geom_hilight(node = 790, alpha = 0.15, fill = "aquamarine", extendto = 4) +
+    geom_hilight(node = 858, alpha = 0.15, fill = "limegreen", extendto = 4) +
+      geom_hilight(node = 1003, alpha = 0.15, fill = "blue", extendto = 4) +
+      geom_hilight(node = 1033, alpha = 0.15, fill = "chartreuse3", extendto = 4) +
+      geom_hilight(node = 952, alpha = 0.15, fill = "slateblue4", extendto = 4) +
+      geom_hilight(node = 1499, alpha = 0.15, fill = "darkgoldenrod", extendto = 4) +
+      geom_hilight(node = 1049, alpha = 0.15, fill = "firebrick", extendto = 4) +
+      geom_hilight(node = 1106, alpha = 0.15, fill = "deeppink4", extendto = 4) +
 
+  
+  
+  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)) & as.numeric(label) > 50),  size = 2) #hjust=2, vjust =1,
+
+  
+# iqtree_annot <- groupClade(iqtree_bs, c(790, 858, 1003, 1033, 952, 1499, 1049, 1106))
+#   iqtree_annot <- ggtree(iqtree_bs, aes(color = group), layout =)
+# 
+# group 790 - TTTT
+#   group 858 - 2T
+#   group 1003 - ranun specific expansion
+#   group 1033 - ranun tp clade
+#   group 952 - TP group
+#   group 1499 ??
+#     group 1049 - 2 T group
+#   group 1106 - BTB
+#   
+  
 # raxml_annot_ <- gheatmap(raxml_annot, tree_annot %>% column_to_rownames(var = "tip.label") %>%dplyr::select(species), offset= 1, width = 0.03, colnames = FALSE)
-ggsave("IQ-TREE_best_tree_annot.pdf", plot = iqtree_annot,
+# iqtree_annot
+
+ggsave("IQ-TREE_best_tree_annot_foranal.pdf", plot = iqtree_annot,
        device = "pdf", 
        width = 1000, 
        height =1000, 
        units = "mm",
        dpi=300,
        limitsize = FALSE)
+
+
+iqtree_bs_4 <- tree_subset(iqtree_bs, node = 790, levels_back = 1)
+
+iqtree_annot4_ <- ggtree(iqtree_bs_4) %<+% tree_annot +
+  geom_tiplab(aes(label= trace, color = trace), size = 2) +
+  geom_tippoint(aes(fill = species), shape = 21, size = 2) +
+  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)) & as.numeric(label) > 50), hjust=2, vjust =2, size = 2)
+
+
+ggsave("IQ-TREE_best_tree_annot4T_only.pdf", plot = iqtree_annot4_,
+       device = "pdf", 
+       width = 500, 
+       height =1000, 
+       units = "mm",
+       dpi=300,
+       limitsize = FALSE)
+
+
+
+
+
+
+
+
+
 
 
 #now try with the RAxML_tree
@@ -569,16 +623,7 @@ ggsave("RAxML_BS_best_tree_annot.pdf", plot = iqtree_annot,
        limitsize = FALSE)
 
 
-
-
-
-
-
-
-
-
-
-
+##Now do the small tree
 
 TTTT_group <- tibble(tip_aln = c(tips(iqtree_bs,790))) %>% #, "t134")
   left_join(tree_annot) %>%
@@ -586,19 +631,67 @@ TTTT_group <- tibble(tip_aln = c(tips(iqtree_bs,790))) %>% #, "t134")
 
 write.fasta(as.list(TTTT_group$seq), names= TTTT_group$tip.label, file.out = "June10_TTTT_fullseq.fasta", as.string = TRUE)
 
+raxml_4T_bs <- read.tree("RAxML-2021.06.11-Run.2/combined with boostrap/RAxML_bipartitions.mapped")
+raxml_4T_bs <- rotate(raxml_4T_bs, 29)
+# raxml_4T_bs <- root.phylo(raxml_4T_bs, 9)
+raxml_4T_bs_map <- read.delim("RAxML-2021.06.11-Run.2/taxonNamesTranslationTable.txt", header = FALSE, col.names = c("tip_4T", "tip.label"))
+tree_annot_4_TRAF <- left_join(raxml_4T_bs_map,tree_annot) %>%
+  unite(tiplab_4T, species_short, uniprot_accession, remove = FALSE, sep = " ")
+
+raxml_4T_bs_annot <- ggtree(raxml_4T_bs) %<+% tree_annot_4_TRAF +
+  geom_tiplab(aes(label= tiplab_4T, colour = species_short), size = 2) +
+  geom_tippoint(aes(fill = simp_type), shape = 21, size = 2) +
+  geom_text(aes(label=node)) # use to find the node use to root
+  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)) & as.numeric(label) > 50), hjust=2, vjust =1, size = 2)
+  
+  
+raxml_4T_bs_annot <-  %>% ggtree::rotate(raxml_4T_bs_annot, 25)  
+raxml_4T_bs_annot
+
+write.tree(raxml_4T_bs, file = "RAxML-2021.06.11-Run.2/combined with boostrap/RAxML_bipartitions.trial.phy", digits = 15)
+raxml_4T_bs <- read.tree("RAxML-2021.06.11-Run.2/combined with boostrap/RAxML_bipartitions.trial.phy")
+
+tree_annot_4_TRAF <- tree_annot_4_TRAF %>%
+  group_by(species) %>%
+  mutate(Species_Code = substring(species_short, 1, 1)) %>%
+  mutate(Species_Code2 = word(species_short, 2,2)) %>%
+  mutate(Species_Code2 = substring(Species_Code2, 1, 1))%>%
+  mutate(TC1 = "TC1") %>%
+  mutate(TRAF4_name = letters[row_number()]) %>%
+  unite(TRAF4_name, Species_Code, Species_Code2, TC1, TRAF4_name, sep = "") %>%
+  relocate(TRAF4_name, .after = Gene_ID)
+
+tax_TT_4T <- read_tsv("RAxML-2021.06.11-Run.2/taxonNamesTranslationTable.txt", col_names = c("tip_4T_aln", "tip.label")) %>%
+  left_join(tree_annot_4_TRAF) %>%
+  mutate(species_clean = str_replace_all(species_short, " ","_"))%>%
+  unite(TRAF4_name, TRAF4_name, species_clean, sep = "_") %>%
+  dplyr::select(tip_4T_aln, TRAF4_name, tip.label)
+
+write_delim(tax_TT_4T, "4T_mapping_for_notung.txt", delim="\t")
 
 
 
+notung <- read.tree(text = "(((((((((((PtTC1d_Populustrichocarpa:1.7568263701644562,PtTC1a_Populustrichocarpa:0.630948565559083)r9276,PtTC1b_Populustrichocarpa:1.00000050002909E-6)r9275,AtTC1a_Arabidopsisthaliana:0.03516842599382719)r9274,(PtTC1c_Populustrichocarpa:0.03395433561533473,AtTC1b_Arabidopsisthaliana:0.2761813996383213)r9277)r9273,(SlTC1a_Solanumlycopersicum:0.19387004935067587,DcTC1a_Daucuscarota:0.18975756771783425)r9278)r9272,PsTC1a_Papaversomniferum:0.23155803030455363)r9271,n1086*LOST)r9876,AtTC1a_Amborellatrichopoda:0.3152892932639884)r9269,(SmTC1a_Selaginellamoellendorffii:0.0037479163388582652,SmTC1b_Selaginellamoellendorffii:0.015018177211969743)n875:0.6282835067083631)r9268,(MpTC1a_Marchantiapolymorpha:0.1153313863913965,(((PpTC1b_Physcomitriumpatens:1.00000050002909E-6,PpTC1c_Physcomitriumpatens:0.003215393993995749)r9283,PpTC1d_Physcomitriumpatens:0.008160730663173618)r9282,PpTC1a_Physcomitriumpatens:0.16586279087812805)r9281)r9280)r9267,CbTC1a_Charabraunii:0.38208257355223985)n7900;")
+
+notung_plot <- ggtree(notung) +
+  geom_tiplab(aes(label= label), size = 2) +
+  # geom_text(aes(label=node)) +
+  geom_label(aes(label = c(rep(NA,26),"D",NA,"D","D",NA,NA,"D",NA,"D","D","D")), fill = "red") +
+  geom_nodelab(aes(label = c(rep(NA,19),"1.0",NA,"0.8056", "0.587",NA, "0.5278","0.6186", NA, NA, "0.7815", "0.5278", NA, "0.910","0.800","0.700", "0.810","0.880","0.62")), vjust = 1.5) + 
+  geom_label(aes(label = c(rep(NA,9),"L",rep(NA,27))), fill = "blue") + 
+  ggplot2::xlim(0,15)
+  # geom_nodelab(aes(label = c(rep("","26"),"D","","D","D","","","D","","D","D","D")), colour = "red") #node30, 29, 27 33 35 36 37
+notung_plot
 
 
 
-
-
-
-
-
-
-
+ggsave("4T_notung.pdf", plot = notung_plot,
+       device = "pdf", 
+       width = 200, 
+       height =100, 
+       units = "mm",
+       dpi=300,
+       limitsize = FALSE)
 
 
 
