@@ -422,22 +422,33 @@ tree_annot <- pdl_fasta_gID_ %>%
   distinct(tip, .keep_all = TRUE) %>%  #it's necessary to remove duplicated tips at this point since haven't removed some dups yet
   unite(UP_ID,  uniprot_accession, Gene_ID, trace, protein_type_, species_short, remove = FALSE)
 
-tax_TT <- read_tsv("RAxML-2021.06.05-Run.1/taxonNamesTranslationTable.txt", col_names = c("tip.label", "fasta_name"))
+tax_TT <- read_tsv("RAxML-2021.06.05-Run.1 isoforms included/taxonNamesTranslationTable.txt", col_names = c("tip.label", "fasta_name"))
 tree_annot <- left_join(tree_annot,tax_TT, by = "fasta_name") %>%
   relocate(tip.label)
+````
 
 
+
+```{r}
 BiocManager::install("ggtree")
 BiocManager::install("treeio")
 install.packages("svglite")
 install.packages("geiger")
+install.packages("phangorn")
+install.packages("phytools")
+install.packages("Polychrome")
+install.packages("ggnewscale")
 library(ggtree)
 library(treeio)
 library(ape)
 library(svglite)
 library(geiger)
+library(phangorn)
+library(phytools)
+library(Polychrome)
+library(ggnewscale)
 
-raxml <- read.newick("RAxML-2021.06.05-Run.1/RAxML_bestTree.file.out")
+raxml <- read.newick("RAxML-2021.06.05-Run.1 isoforms included/RAxML_bestTree.file.out")
 raxml_annot <- ggtree(raxml, layout = "circular") %<+% tree_annot +
   geom_tiplab(aes(label= UP_ID, color = simp_type), size = 2) +
   geom_tippoint(aes(fill = species), shape = 21, size = 2) 
@@ -603,7 +614,6 @@ ggsave("IQ-TREE_best_tree_annot4T_only.pdf", plot = iqtree_annot4_,
 
 
 
-
 #now try with the RAxML_tree
 raxml_bs <- read.newick("RAxML-2021.06.10-run.9GAMMA JTT F/combined with boostrap/RAxML_bipartitions.mapped")
 
@@ -623,6 +633,114 @@ ggsave("RAxML_BS_best_tree_annot.pdf", plot = iqtree_annot,
        limitsize = FALSE)
 
 
+
+
+
+
+
+
+pdl_fasta_genelist <- tree_annot%>%
+  group_by(Gene_ID)%>%
+  distinct(Gene_ID, .keep_all = TRUE)
+  
+
+write_csv(pdl_fasta_genelist, "pdl_fasta_genegrouped.csv")
+
+
+
+
+
+
+
+
+
+
+
+
+####Generate 4T single gene tree
+
+#read phylip mapped file (not nexus)
+iqtree_4T_ML <- read.tree(file = "addtax for 4T/IQ_TREE-2021.06.18-Run.4 THIS ONE/THIS ONE/RAxML_bipartitions.mapped_gfjhgfj")
+
+species_factor <- read_delim("addtax for 4T/IQ_TREE-2021.06.18-Run.4 THIS ONE/THIS ONE/species_order_for_levels.txt", delim = "\t", col_names = "species_level")
+species_factor <- as_factor(c(species_factor$species_level, "LOST"))
+
+color_palette <- c(rainbow(32, start = 0.25, end = 0.1), "black")
+# swatch(c(rainbow(32, start = 0.25, end = 0.1), "black"))
+names(color_palette) <- species_factor
+
+tipnames_4T <- read_delim("addtax for 4T/IQ_TREE-2021.06.18-Run.4 THIS ONE/THIS ONE/Taxnames_forR.txt", delim = "\t", col_names = c("Acc","taxon_no","notung_ID","species")) %>%
+  group_by(species) %>%
+  mutate(code_name = paste0(species,"_QMATH_",letters[1:n()])) %>%
+  mutate(species = factor(species, levels = levels(species_factor)))
+
+Gene_4T <- ggtree(iqtree_4T_ML) %<+% tipnames_4T +
+  # geom_tiplab() +
+  # geom_text(aes(label=node)) +
+  geom_rootedge(rootedge = 0.25) +
+  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)), color = !is.na(as.numeric(label)) & as.numeric(label) <75), hjust=1, vjust =-0.5, size = 2) +  scale_color_manual(values=c("black", "red"), guide = FALSE) +
+  new_scale_color() +
+  geom_tiplab(aes(label= code_name, color = species), size = 2) +
+  scale_color_manual(values=color_palette)+ #unname(glasbey.colors(25)[2:25]) 
+  guides(color=guide_legend(ncol=1, )) +
+  theme(legend.title = element_text(size=5),
+        legend.text = element_text(size=5),
+        legend.position = "left",
+        plot.margin = unit(c(0.5,4,3,0), "cm"))+
+  coord_cartesian(clip = 'off')
+        
+
+Gene_4T
+
+
+# swatch(rainbow(24, start = 0.25, end = 0.1))
+
+ggsave("4T_gene_tree.pdf", plot = Gene_4T,
+       device = "pdf", 
+       width = 215.9, 
+       height =279.4, 
+       units = "mm",
+       dpi=300)
+
+
+####Generate Notung tree
+iqtree_4T_notung <- read.nhx(file = "addtax for 4T/IQ_TREE-2021.06.18-Run.4 THIS ONE/THIS ONE/output.boottrees_for_notung_result.phy.NHX")
+tipnames_4T_notung2 <- read_delim("addtax for 4T/IQ_TREE-2021.06.18-Run.4 THIS ONE/THIS ONE/Taxnames_forR2.txt", delim = "\t", col_names = TRUE)
+
+tipnames_4T_notung <- rbind(tipnames_4T,tipnames_4T_notung2)%>%
+  relocate(notung_ID) %>%
+    mutate(species = factor(species, levels = c(levels(species_factor), "LOST")))
+
+iqtree_4T_notung@data$D <- str_replace(iqtree_4T_notung@data$D, "Y", "D")
+iqtree_4T_notung@data$D <- na_if(iqtree_4T_notung@data$D, "N")
+
+Gene_4T_not <- ggtree(iqtree_4T_notung)  %>% rotate(48) %<+% tipnames_4T_notung +
+  geom_rootedge(rootedge = 0.25)+
+    # geom_text(aes(label=node)) +
+  geom_tiplab(aes(label= code_name, color = species), size = 2) +
+  scale_color_manual(values=color_palette)+ #unname(glasbey.colors(25)[2:25]) 
+  geom_label(aes(label = D), fill = "red", size = 2) +
+  guides(color=guide_legend(ncol=1)) +
+  theme(legend.title = element_text(size=5),
+        legend.text = element_text(size=5),
+        legend.position = "left",
+        plot.margin = unit(c(0.5,4,3,0), "cm"))+
+  coord_cartesian(clip = 'off')
+
+Gene_4T_not
+
+ggsave("4T_notung_tree.pdf", plot = Gene_4T_not,
+       device = "pdf", 
+       width = 215.9, 
+       height =279.4, 
+       units = "mm",
+       dpi=300)
+
+
+
+
+
+### OLD
 ##Now do the small tree
 
 TTTT_group <- tibble(tip_aln = c(tips(iqtree_bs,790))) %>% #, "t134")
