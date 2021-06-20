@@ -669,7 +669,7 @@ color_palette <- c(rainbow(32, start = 0.25, end = 0.1), "black")
 # swatch(c(rainbow(32, start = 0.25, end = 0.1), "black"))
 names(color_palette) <- species_factor
 
-tipnames_4T <- read_delim("addtax for 4T/IQ_TREE-2021.06.18-Run.4 THIS ONE/THIS ONE/Taxnames_forR.txt", delim = "\t", col_names = c("Acc","taxon_no","notung_ID","species")) %>%
+tipnames_4T <- read_delim("addtax for 4T/IQ_TREE-2021.06.18-Run.4 THIS ONE/THIS ONE/Taxnames_forR.txt", delim = "\t", col_names = c("Acc","taxon_no","notung_ID","species", "uniprot_accession")) %>%
   group_by(species) %>%
   mutate(code_name = paste0(species,"_QMATH_",letters[1:n()])) %>%
   mutate(species = factor(species, levels = levels(species_factor)))
@@ -735,6 +735,250 @@ ggsave("4T_notung_tree.pdf", plot = Gene_4T_not,
        height =279.4, 
        units = "mm",
        dpi=300)
+
+
+
+
+#final big tree
+
+#now read in the mapped file
+iqtree_bs <- read.newick("RAxML bootstrap_2_notaxnames WITH CORRECT MODEL/Cat bootstrap/mapping/RAxML_bipartitions.mapped328_rooted")
+tree_annot <- read.csv("pdl_fasta.csv")
+tree_annot <- tree_annot %>% 
+  mutate(a = row_number()-1) %>%
+  mutate(b = "t") %>%
+  unite("tip_aln", "b","a", sep = "") %>% 
+  relocate(tip_aln) %>%
+  rename(tip.label = UP_ID) %>%
+  mutate(tip.label = str_replace(tip.label, " ", "_")) %>%
+  mutate(tip.label = str_replace(tip.label, "\\:", "_"))%>%
+  mutate(tip_a = tip_aln) %>%
+  relocate(tip_aln, tip_a)
+
+tree_annot <- tree_annot %>%
+  mutate(group = if_else(str_detect(species, "elegans|musculus|cerevisiae"), "Opisthokonta", "Archaeplastida")) %>%
+  unite(Text_color_label, species_short, protein_type_, trace_ua, sep = " ", remove = FALSE)
+
+
+
+
+iqtree_annot <- ggtree(iqtree_bs, layout="circular") %<+% tree_annot_withQMATH +
+  geom_rootedge(rootedge = 0.25) +
+  geom_tiplab(aes(label= new_labels4T, color = simp_type), size = 2) +
+  geom_tippoint(aes(fill = domain_size), shape = 21, size = 2) +
+  geom_text(aes(label=node)) +
+  geom_hilight(node = 762, alpha = 0.15, fill = "aquamarine", extendto = 4) +
+    geom_hilight(node = 1321, alpha = 0.15, fill = "limegreen", extendto = 4) +
+      geom_hilight(node = 1003, alpha = 0.15, fill = "blue", extendto = 4) +
+      geom_hilight(node = 1033, alpha = 0.15, fill = "chartreuse3", extendto = 4) +
+      geom_hilight(node = 952, alpha = 0.15, fill = "slateblue4", extendto = 4) +
+      geom_hilight(node = 1499, alpha = 0.15, fill = "darkgoldenrod", extendto = 4) +
+      geom_hilight(node = 1049, alpha = 0.15, fill = "firebrick", extendto = 4) +
+      geom_hilight(node = 1106, alpha = 0.15, fill = "deeppink4", extendto = 4) +
+
+  
+  
+  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)) & as.numeric(label) > 50, color = !is.na(as.numeric(label)) & as.numeric(label) <75),  size = 2) #hjust=2, vjust =1,
+
+  
+# iqtree_annot <- groupClade(iqtree_bs, c(790, 858, 1003, 1033, 952, 1499, 1049, 1106))
+#   iqtree_annot <- ggtree(iqtree_bs, aes(color = group), layout =)
+# 
+# group 790 - TTTT
+#   group 858 - 2T
+#   group 1003 - ranun specific expansion
+#   group 1033 - ranun tp clade
+#   group 952 - TP group
+#   group 1499 ??
+#     group 1049 - 2 T group
+#   group 1106 - BTB
+#   
+  
+# raxml_annot_ <- gheatmap(raxml_annot, tree_annot %>% column_to_rownames(var = "tip.label") %>%dplyr::select(species), offset= 1, width = 0.03, colnames = FALSE)
+# iqtree_annot
+
+ggsave("IQ-TREE_best_tree_annot_final_one.pdf", plot = iqtree_annot,
+       device = "pdf", 
+       width = 1000, 
+       height =1000, 
+       units = "mm",
+       dpi=300,
+       limitsize = FALSE)
+
+
+
+
+
+iqtree_annot2 <- ggtree(iqtree_bs) %<+% tree_annot_withQMATH +
+  geom_rootedge(rootedge = 0.25) +
+  geom_tiplab(aes(label= newlabels_4T, color = species_short), size = 1.5) + #
+    scale_color_manual(values=color_palette) +
+  # geom_tippoint(aes(fill = trace), shape = 21, size = 2) +
+  # geom_text(aes(label=node), size =1) +
+  geom_cladelabel(node=762, label="MATH-BTB", align=T, offset = 1, color='black')+
+  geom_cladelabel(node=1321, label="MATH-UBP", align=T,  color='black')+
+  geom_cladelabel(node=1267, label="Double TRAF, 2nd position", align=T,  color='black')+
+  geom_cladelabel(node=1232, label="Double TRAF, 1st position", align=T,  color='black')+  
+  geom_cladelabel(node=1417, label="QMATH", align=T,  color='black')+
+  geom_cladelabel(node=1482, label="MUSE13/14 (Single TRAF)", align=T,  color='black')+
+  geom_cladelabel(node=1167, label="Double TRAF, 1st position", align=T,  color='black')+
+  geom_cladelabel(node=1373, label="Papaver MATH-only", align=T,  color='black')+ 
+    new_scale_color()+
+  geom_nodepoint(aes(label=label, subset = !is.na(as.numeric(label)), color = !is.na(as.numeric(label)) & as.numeric(label) <75),  size = 1.5, stroke =0)+
+  scale_color_manual(values=c("black", "red"), guide = FALSE)+
+    # geom_text2(aes(label=label, subset = !is.na(as.numeric(label)), color = !is.na(as.numeric(label)) & as.numeric(label) <75),  size = 2)+ #hjust=2, vjust 
+    theme(legend.title = element_text(size=5),
+        legend.text = element_text(size=5),
+        legend.position = c(0.1,0.92),
+        plot.margin = unit(c(0.5,2.5,4,0), "cm"))+
+  coord_cartesian(clip = 'off')
+
+ggsave("IQ-TREE_best_tree_annot_final_linear.pdf", plot = iqtree_annot2,
+       device = "pdf", 
+       width = 215.9, 
+       height =1000, 
+       units = "mm",
+       dpi=300)
+
+
+iqtree_annot2 <- ggtree(iqtree_bs, layout = "circular") %<+% tree_annot_withQMATH +
+  geom_rootedge(rootedge = 0.25) +
+  geom_tiplab(aes(label= newlabels_4T, color = species_short), size = 1) + #
+    scale_color_manual(values=color_palette) +
+  # geom_tippoint(aes(fill = trace), shape = 21, size = 2) +
+  # geom_text(aes(label=node), size =1) +
+  geom_cladelabel(node=762, label="MATH-BTB", align=T, offset = 1, offset.text = 0.25,color='black')+
+  geom_cladelabel(node=1321, label="MATH-UBP", align=T,  offset.text = 0.25,hjust = 1, color='black')+
+  geom_cladelabel(node=1267, label="Double TRAF, 2nd position", offset.text = 0.25,hjust = 1, align=T,  color='black')+
+  geom_cladelabel(node=1232, label="Double TRAF, 1st position", align=T, hjust = 0.5, offset.text = 0.25, color='black')+  
+  geom_cladelabel(node=1417, label="QMATH", align=T,  offset.text = 0.25,color='black')+
+  geom_cladelabel(node=1482, label="MUSE13/14 (Single TRAF)", align=T,  offset.text = 0.25,color='black')+
+  geom_cladelabel(node=1167, label="Double TRAF, 1st position", align=T,  offset.text = 0.25,color='black')+
+  geom_cladelabel(node=1373, label="Papaver MATH-only", align=T,  offset.text = 0.25, hjust = 1, color='black')+ 
+    new_scale_color()+
+  geom_nodepoint(aes(label=label, subset = !is.na(as.numeric(label)), color = !is.na(as.numeric(label)) & as.numeric(label) <75),  size = 1.5, stroke =0)+
+  scale_color_manual(values=c("black", "red"), guide = FALSE)+
+    # geom_text2(aes(label=label, subset = !is.na(as.numeric(label)), color = !is.na(as.numeric(label)) & as.numeric(label) <75),  size = 2)+ #hjust=2, vjust 
+    theme(legend.title = element_text(size=8),
+        legend.text = element_text(size=8),
+        legend.position = c(0,0.5),
+        plot.margin = unit(c(0,0,3,0), "cm"))
+  # coord_cartesian(clip = 'off')
+
+ggsave("IQ-TREE_best_tree_annot_final_circular.pdf", plot = iqtree_annot2,
+       device = "pdf", 
+       width = 450, 
+       height =350, 
+       units = "mm",
+       dpi=300)
+
+
+
+#species tree
+
+species_tree <- read.newick("ensembl_all_phyliptree2_new2.phy")
+species_tree$tip.label <- str_replace(species_tree$tip.label, "_", " ")
+
+
+
+tree_annot_species <- tree_annot_withQMATH %>%
+  relocate(species_short)
+
+iqtree_annot3 <- ggtree(species_tree)+ #%<+% tree_annot_species +
+  geom_rootedge(rootedge = 0.25) +
+  geom_tiplab(aes(label= label, color = label), size = 2) + #
+    scale_color_manual(values=color_palette, guide = FALSE) +
+    theme(plot.margin = unit(c(0,3,3,0), "cm"))+
+  coord_cartesian(clip = 'off')
+
+
+iqtree_annot3
+ggsave("Species_tree.pdf", plot = iqtree_annot3,
+       device = "pdf", 
+       width = 215.9, 
+       height =279.4, 
+       units = "mm",
+       dpi=300)
+
+
+
+
+
+
+
+
+
+
+
+tipnames_4T <- tipnames_4T %>%
+  mutate(tip.label = Acc)
+
+tree_annot_withQMATH <- left_join(tree_annot,tipnames_4T, by = "uniprot_accession") %>%
+  unite(newlabels_4T, species_short, uniprot_accession, sep = "_", remove = FALSE) %>%
+  mutate(new_name = coalesce(code_name, newlabels_4T)) %>%
+  rename(group_taxa = group) %>%
+    mutate(species_short = factor(species_short, levels = species_factor))
+
+
+
+
+iqtree_4T_domain <- tree_subset(iqtree_bs, node=1416, levels_back=0)
+iqtree_4T_domain <- groupClade(iqtree_4T_domain, c(98,116,147,132,162))
+
+
+iqtree_annot_4T_domain <- ggtree(iqtree_4T_domain) %<+% tree_annot_withQMATH + #, aes(color =group)
+  geom_rootedge(rootedge = 0.25) +
+  # # geom_text(aes(label=node)) +
+  # scale_color_manual(values=c("black", "red"), guide = FALSE)
+  geom_cladelabel(node=98, label="1st Domain", align=F,  offset = 0.8, color='black')+
+  geom_cladelabel(node=116, label="2nd Domain", align=F,  offset = 0.8,color='black')+
+  geom_cladelabel(node=147, label="3rd Domain", align=F,  offset = 0.85,color='black')+
+  geom_cladelabel(node=132, label="4th Domain", align=F,  offset = 0.9,color='black')+
+  geom_cladelabel(node=162, label="Single TRAF", align=F,  offset = 0.95,color='black')+
+  new_scale_color()+
+  geom_text2(aes(label=label, subset = !is.na(as.numeric(label)), color = !is.na(as.numeric(label)) & as.numeric(label) <75), hjust=1.5, vjust =-0.5, size = 2) +  
+  scale_color_manual(values=c("black", "red"), guide = FALSE) +
+  new_scale_color() +
+  geom_tiplab(aes(label= new_name, color = species_short), size = 2) +
+  scale_color_manual(values=color_palette) +
+  # geom_tippoint(aes(fill = trace), shape = 21, size = 2) +
+  guides(color=guide_legend(ncol=1, )) +
+  # xlim(0,5) +
+  theme(legend.title = element_text(size=5),
+        legend.text = element_text(size=5),
+        legend.position = "left",
+        plot.margin = unit(c(0.5,2,3,0), "cm"))+
+  coord_cartesian(clip = 'off')
+
+iqtree_annot_4T_domain
+
+ggsave("IQ-TREE_best_tree_annot_4T_domain_final_one.pdf", plot = iqtree_annot_4T_domain,
+       device = "pdf", 
+       width = 215.9, 
+       height =279.4, 
+       units = "mm",
+       dpi=300)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
